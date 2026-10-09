@@ -1,0 +1,33 @@
+bot: yeno-house-bot-v1.py (unmodified kit file)
+command: python3 sim/yeno_sim.py --bot yeno-house-bot-v1.py --seeds 8
+
+=== MECHANICS ONLY, NOT EDGE === synthetic books; volumes and cash are not evidence of edge
+scenario      adv runs  med vol best vol  flat%  qual% med cash med DDeq settled late buy after tgt errors
+baseline        0    8    218.6    289.9    100      0     3.59     6.47       0       46         0      0
+baseline        1    8    156.1    197.6    100      0     3.48     6.52       0       35         0      0
+baseline        2    8    117.9    167.7    100      0     3.71     6.32       0       25         0      0
+baseline        3    8    106.4    108.4    100      0     3.53     6.55       0       16         0      0
+partial         0    8    237.1    258.0    100      0     3.58     6.59       0       41         0      0
+stale           0    8    193.4    297.5    100      0     3.82     6.34       0       54         0      0
+onesided        0    8    193.5    379.5    100      0     3.72     9.38       0       36         0      0
+schema          0    8      0.0      0.0    100      0     2.78    12.84     337       38         0      0
+timeouts        0    8    186.2    283.0    100      0     3.83     6.48       0       44         0      0
+minsize         0    8    170.9    250.6    100      0     3.81     6.47       0       67         0      0
+lagged          0    8   1309.6   2015.8    100     75     3.81     7.04       0      335       348      0
+everything      0    8      0.0      0.0    100      0     2.94    14.66     380      118         0      0
+short-window    0   64     93.4    152.5    100    100     9.11     1.58       0      189       407      0
+
+rejections and non-flat finishes (summed over runs):
+  baseline@0c: not_flat={} partial_sells=0 buys_below_min=116 rejects={'SELL:pending_action': 41, 'SELL:stale_book': 3, 'BUY:stale_book': 1}
+  baseline@1c: not_flat={} partial_sells=0 buys_below_min=96 rejects={'SELL:pending_action': 27, 'BUY:stale_book': 1, 'SELL:stale_book': 1}
+  baseline@2c: not_flat={} partial_sells=0 buys_below_min=100 rejects={'SELL:pending_action': 25}
+  baseline@3c: not_flat={} partial_sells=0 buys_below_min=87 rejects={'SELL:pending_action': 24, 'SELL:stale_book': 1}
+  partial@0c: not_flat={} partial_sells=0 buys_below_min=122 rejects={'SELL:pending_action': 37, 'SELL:stale_book': 4}
+  stale@0c: not_flat={} partial_sells=0 buys_below_min=103 rejects={'SELL:pending_action': 34, 'BUY:stale_book': 3, 'SELL:stale_book': 1, 'BUY:pending_action': 1}
+  onesided@0c: not_flat={} partial_sells=0 buys_below_min=83 rejects={'SELL:pending_action': 32, 'BUY:no_asks': 12, 'BUY:stale_book': 1, 'SELL:no_bids': 1}
+  schema@0c: not_flat={} partial_sells=0 buys_below_min=153 rejects={'BUY:stale_book': 2, 'BUY:pending_action': 1}
+  timeouts@0c: not_flat={} partial_sells=0 buys_below_min=89 rejects={'SELL:pending_action': 91, 'BUY:pending_action': 13, 'SELL:write_dropped': 13, 'BUY:write_dropped': 5, 'BUY:stale_book': 2, 'SELL:stale_book': 1}
+  minsize@0c: not_flat={} partial_sells=0 buys_below_min=0 rejects={'BUY:below_min_size': 233, 'SELL:pending_action': 28, 'BUY:pending_action': 2, 'BUY:stale_book': 2, 'SELL:stale_book': 1}
+  lagged@0c: not_flat={} partial_sells=0 buys_below_min=706 rejects={'SELL:pending_action': 229, 'BUY:stale_book': 10, 'BUY:pending_action': 9, 'SELL:stale_book': 7, 'BUY:no_asks': 1}
+  everything@0c: not_flat={} partial_sells=0 buys_below_min=0 rejects={'BUY:below_min_size': 367, 'BUY:pending_action': 78, 'BUY:no_asks': 66, 'BUY:write_dropped': 24, 'BUY:stale_book': 12}
+  short-window@0c: not_flat={} partial_sells=0 buys_below_min=399 rejects={'SELL:pending_action': 117, 'BUY:stale_book': 7, 'BUY:pending_action': 3, 'SELL:stale_book': 2}
