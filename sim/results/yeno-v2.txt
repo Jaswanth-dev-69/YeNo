@@ -1,0 +1,47 @@
+bot: yeno_bot.py
+command: python3 sim/yeno_sim.py --bot yeno_bot.py --seeds 8
+simulator: addendum version (commit 0e3d39d)
+
+=== mechanics only, not edge === synthetic books; volumes and cash are not evidence of edge
+scenario      adv runs  med vol best vol qual% med cash med DDeq med cyc settled <5sh rej late buy errors
+baseline        0    8    208.7    247.1     0     3.72     6.43      24       0       41        0      0
+baseline        1    8    147.1    182.0     0     3.70     6.30      17       0       53        0      0
+baseline        2    8    105.2    127.5     0     3.77     6.33      12       0      102        0      0
+baseline        3    8     83.5    110.8     0     3.91     6.21      10       0      175        0      0
+partial         0    8    205.1    254.2     0     3.97     6.21      24       0       62        0      0
+stale           0    8    222.7    264.7     0     3.91     6.22      26       0       34        0      0
+onesided        0    8    182.0    300.8     0     3.80     8.59      21       0       48        0      0
+thin-expiry     0    8    157.5    283.1     0     3.82     9.58      18       2       63        0      0
+timeouts        0    8    186.9    352.2     0     3.85     6.47      22       0       47        0      0
+minsize         0    8    173.2    262.0     0     3.75     6.46      20       0       58        0      0
+lagged          0    8    952.4   1309.0    50     3.74     6.50     110       0      248        0      0
+everything      0    8    164.8    325.5     0     3.94     8.95      19       0       48        0      0
+short-window    0   64     52.6     88.0    77     9.70     1.03       6       0      111        0      0
+
+rejections, partial sells and skipped calls, summed over runs (mechanics only, not edge):
+  baseline@0c: partial_sells=0 skipped_stale_calls=10477 rejects={'BUY:below_min_size': 41, 'BUY:stale_book': 1, 'SELL:stale_book': 1}
+  baseline@1c: partial_sells=0 skipped_stale_calls=10477 rejects={'BUY:below_min_size': 53, 'BUY:stale_book': 2, 'SELL:stale_book': 1}
+  baseline@2c: partial_sells=0 skipped_stale_calls=10477 rejects={'BUY:below_min_size': 102, 'BUY:stale_book': 2, 'SELL:stale_book': 1}
+  baseline@3c: partial_sells=0 skipped_stale_calls=10474 rejects={'BUY:below_min_size': 175, 'BUY:stale_book': 3, 'SELL:stale_book': 1}
+  partial@0c: partial_sells=0 skipped_stale_calls=10825 rejects={'BUY:below_min_size': 62, 'SELL:stale_book': 4}
+  stale@0c: partial_sells=0 skipped_stale_calls=16221 rejects={'BUY:below_min_size': 34, 'BUY:stale_book': 3, 'SELL:stale_book': 1}
+  onesided@0c: partial_sells=0 skipped_stale_calls=10655 rejects={'BUY:below_min_size': 48, 'SELL:no_bids': 5, 'BUY:no_asks': 4, 'SELL:stale_book': 1, 'BUY:stale_book': 1}
+  thin-expiry@0c: partial_sells=1 skipped_stale_calls=10633 rejects={'SELL:no_bids': 190, 'BUY:below_min_size': 63, 'SELL:stale_book': 2, 'SELL:market_closed': 1}
+  timeouts@0c: partial_sells=0 skipped_stale_calls=9954 rejects={'BUY:below_min_size': 47, 'SELL:write_dropped': 17, 'BUY:write_dropped': 6}
+  minsize@0c: partial_sells=0 skipped_stale_calls=10468 rejects={'BUY:below_min_size': 58, 'SELL:stale_book': 2, 'BUY:stale_book': 1}
+  lagged@0c: partial_sells=0 skipped_stale_calls=10577 rejects={'BUY:below_min_size': 248, 'BUY:stale_book': 7, 'SELL:stale_book': 6}
+  everything@0c: partial_sells=0 skipped_stale_calls=15250 rejects={'BUY:below_min_size': 48, 'SELL:write_dropped': 11, 'BUY:no_asks': 7, 'BUY:write_dropped': 7, 'SELL:no_bids': 5}
+  short-window@0c: partial_sells=0 skipped_stale_calls=3472 rejects={'BUY:below_min_size': 111, 'BUY:stale_book': 5}
+
+Before/after (mechanics only, not edge): house-v1 vs yeno-v2, same simulator, same seeds
+metric                                                                     house-v1                 yeno-v2
+BUYs that would fill under 5 shares (rejected), whole suite                     61%                     27%
+  same, baseline at 0c                                                          53%                     19%
+Min-size BUY rejections, whole suite                                           5076                    1090
+Positions held to settlement, whole suite                                         1                       2
+Completed cycles, whole suite                                                  3279                    2984
+BUYs sent with <=60 s to close, whole suite                                    2104                       0
+Partial (split) sells, whole suite                                                1                       1
+Bot errors / invalid replies / timeouts                                           0                       0
+HTTP latency p50 / p99 / max ms (24 h, ~85k calls)            0.756 / 1.528 / 33.11   0.757 / 1.53 / 33.777
+HTTP runs: 0 timeouts at a 200 ms client timeout; action hashes identical to in-process runs.

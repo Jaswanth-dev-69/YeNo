@@ -22,3 +22,4 @@ Every simulator number below is **mechanics only, not edge**: synthetic books, n
 - 1d: any exception while holding returns SELL (and latches the exit); while flat it returns HOLD.
 - 1e: threading.Lock around decide; YENO_BIND_HOST (default 127.0.0.1) and YENO_PORT (default 8080).
 - sim: addendum semantics (fresh-book/no-pending call gating, snake_case position with market_id, sub-minimum BUYs rejected, qualification at first crossing); removed camelCase scenario; added thin-expiry; p50 latency.
+- verification: full suite for house-v1 and yeno-v2 on the addendum simulator; before/after table in sim/results/yeno-v2.txt.

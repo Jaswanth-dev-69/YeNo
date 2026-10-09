@@ -26,3 +26,9 @@
   - New `thin-expiry` scenario: per market and outcome, the last 90 s are thin (0.5–3 shares per level) 40% of the time, patchy (bids missing on 60% of updates) 30%, fully one-sided 10%, normal 20%.
   - `minsize` now differs from the default only in also rejecting sub-minimum SELLs.
   - The saved `house-v1.txt` came from the pre-addendum simulator; the final suite regenerates it on this version.
+- **3 Verification (mechanics only, not edge).**
+  - 19 unit tests pass. Regression hashes: unchanged 24/24 for 1d and 1e. Fixes 1a/1b/1c intentionally change actions.
+  - Full suite run once per bot on the addendum simulator: `sim/results/house-v1.txt` (regenerated) and `sim/results/yeno-v2.txt`, with the before/after table.
+  - **Settlements: yeno-v2 had 2 vs house-v1's 1, both in `thin-expiry`.** Traces show each was a fully one-sided market: the entry saw a book stamped just before the simulated 90 s cutoff, then that outcome had no bids until close. The bot sent SELL on every call from 60 s (54 and 66 `SELL:no_bids` rejections). Nothing could be sold, so the difference is entry-timing luck, not a defect.
+  - Partial sells are rare in this simulator (1 per suite). Even "thin" books usually hold 5 shares across 5 levels, so the partial-depth paths are covered mainly by unit tests.
+  - HTTP, 24 h baseline, ~85k calls per bot: p50 0.76 ms, p99 1.53 ms, max 34 ms, 0 timeouts at 200 ms. Action hashes match the in-process runs.
