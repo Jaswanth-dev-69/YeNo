@@ -27,7 +27,7 @@
   - `minsize` now differs from the default only in also rejecting sub-minimum SELLs.
   - The saved `house-v1.txt` came from the pre-addendum simulator; the final suite regenerates it on this version.
 - **3 Verification (mechanics only, not edge).**
-  - 19 unit tests pass. Regression hashes: unchanged 24/24 for 1d and 1e. Fixes 1a/1b/1c intentionally change actions.
+  - 18 unit tests pass (20 after item 6). Regression hashes: unchanged 24/24 for 1d and 1e. Fixes 1a/1b/1c intentionally change actions.
   - Full suite run once per bot on the addendum simulator: `sim/results/house-v1.txt` (regenerated) and `sim/results/yeno-v2.txt`, with the before/after table.
   - **Settlements: yeno-v2 had 2 vs house-v1's 1, both in `thin-expiry`.** Traces show each was a fully one-sided market: the entry saw a book stamped just before the simulated 90 s cutoff, then that outcome had no bids until close. The bot sent SELL on every call from 60 s (54 and 66 `SELL:no_bids` rejections). Nothing could be sold, so the difference is entry-timing luck, not a defect.
   - Partial sells are rare in this simulator (1 per suite). Even "thin" books usually hold 5 shares across 5 levels, so the partial-depth paths are covered mainly by unit tests.
@@ -43,3 +43,4 @@
   - Default-mode action hashes are unchanged. Mechanics check (mechanics only, not edge): 0 sub-5 rejections. Cycles fell (median 19 vs 24) because in an edge-free world bigger positions lose cash faster.
   - **Its edge is untested.** Turn it on only after real-data evidence.
 - **Pre-push audit (Part 1).** All commits use only the GitHub no-reply address. No secrets, personal paths or other emails anywhere in history. Largest file 30 KB. Added the one-line summary to the top of the README.
+- Correction: the unit-test count was misreported as 19 (task 3) and 21 (final report); the actual counts are 18 at task 3 and 20 now.
