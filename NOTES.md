@@ -33,3 +33,7 @@
   - Partial sells are rare in this simulator (1 per suite). Even "thin" books usually hold 5 shares across 5 levels, so the partial-depth paths are covered mainly by unit tests.
   - HTTP, 24 h baseline, ~85k calls per bot: p50 0.76 ms, p99 1.53 ms, max 34 ms, 0 timeouts at 200 ms. Action hashes match the in-process runs.
 - **4 Recorder feasibility** (FEASIBILITY.md): feasible without an account via Polymarket Gamma + CLOB `/book` + exchange tickers. Gaps: resolution uses the Chainlink 60 s TWAP (credentialed), and YeNo's books are not confirmed to equal Polymarket's. Important for later strategy work: Up/Down resolves on a 60 s TWAP, not spot. `priceToBeat` appears in Gamma with a delay. No recorder was built or left running.
+- **5 Packaging.**
+  - Dockerfile: `python:3.12.8-slim-bookworm`, pinned by tag and digest. Copies only `yeno_bot.py` (the `.dockerignore` excludes everything else). Runs as `nobody` with `YENO_BIND_HOST=0.0.0.0`.
+  - Built and run locally: the smoke test passes, and the container's action hash equals the in-process one.
+  - The image was not pushed. README.md and SUBMISSION.md added.
