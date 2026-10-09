@@ -79,6 +79,7 @@ class HouseBot:
         self.completed_cycles = 0
         self.last_flat_at = -math.inf
         self.last_buy_attempt_at = -math.inf
+        self.exiting = False
 
     def decide(self, observation: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -101,28 +102,43 @@ class HouseBot:
             self.completed_cycles = 0
             self.last_flat_at = -math.inf
             self.last_buy_attempt_at = -math.inf
+            self.exiting = False
 
+        if position is None:
+            self.exiting = False
         if position is None and self.position_was_open:
             self.completed_cycles += 1
             self.last_flat_at = now
         self.position_was_open = position is not None
 
         if position is not None:
+            # Once an exit starts, finish it: a split exit only counts when the cycle closes, and
+            # the fill uses a book 250 ms later, so SELL even when the observed bids are empty.
+            if self.exiting or seconds <= FORCED_EXIT_SECONDS + 1e-9:
+                return self._sell()
+            if str(position.get("market_id", market_id)) != market_id:
+                return self._sell()
             side = str(position["outcome"])
             shares = float(position["shares"])
-            executable = _sell_proceeds(books.get(side, {}).get("bids", []), shares)
+            bid_rows = books.get(side, {}).get("bids", [])
+            sellable = min(shares, sum(size for _, size in _levels(bid_rows, reverse=True)))
+            if sellable <= 1e-9:
+                return {"action": "HOLD"}
+            executable = _sell_proceeds(bid_rows, sellable)
             if executable is None:
                 return {"action": "HOLD"}
             sell_gross, sell_fees = executable
+            net_now = sell_gross - sell_fees
+            if sellable < shares:
+                # Thin book: value the unsellable rest at the same average net price.
+                net_now *= shares / sellable
             paid = float(position["buy_gross_usd"]) + float(position["buy_fees_usd"])
             received = float(position.get("sell_gross_usd", 0)) - float(position.get("sell_fees_usd", 0))
-            full_cycle_pnl = received + sell_gross - sell_fees - paid
+            full_cycle_pnl = received + net_now - paid
             if full_cycle_pnl >= -1e-9:
-                return {"action": "SELL"}
+                return self._sell()
             if full_cycle_pnl <= -STOP_LOSS_PER_SHARE_USD * shares + 1e-9:
-                return {"action": "SELL"}
-            if seconds <= FORCED_EXIT_SECONDS + 1e-9:
-                return {"action": "SELL"}
+                return self._sell()
             return {"action": "HOLD"}
 
         if self.completed_cycles >= MAXIMUM_CYCLES_PER_MARKET:
@@ -165,6 +181,10 @@ class HouseBot:
             return {"action": "HOLD"}
         self.last_buy_attempt_at = now
         return {"action": "BUY", "outcome": side, "maxCashUsd": round(cash, 6)}
+
+    def _sell(self) -> dict[str, Any]:
+        self.exiting = True
+        return {"action": "SELL"}
 
 
 BOT = HouseBot()

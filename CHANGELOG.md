@@ -14,3 +14,6 @@ Every simulator number below is **mechanics only, not edge**: synthetic books, n
 - It still enters with 60 s or less to close, and those positions are force-sold on the next tick: 46 BUYs in 8 baseline days.
 - About half its BUYs fill below the 5-share minimum, because `maxCashUsd` is the exact cost of 5 shares at the observed ask. Under `minsize`, 233 BUYs are rejected.
 - It does not reproduce the published 12/30 non-flat finishes. Flat was 100% in every scenario, so the real cause must be something the simulator doesn't model (for example, persistently thin books in real data).
+
+## yeno_bot.py
+- 1a: SELL on whatever bid depth exists. An exit, once triggered, re-sends SELL until flat. Hard flatten from 60 s to close, including positions found inside that window.
