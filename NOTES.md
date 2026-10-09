@@ -37,3 +37,8 @@
   - Dockerfile: `python:3.12.8-slim-bookworm`, pinned by tag and digest. Copies only `yeno_bot.py` (the `.dockerignore` excludes everything else). Runs as `nobody` with `YENO_BIND_HOST=0.0.0.0`.
   - Built and run locally: the smoke test passes, and the container's action hash equals the in-process one.
   - The image was not pushed. README.md and SUBMISSION.md added.
+- **6 Opt-in `YENO_SIZE_TO_CAP=1`** (default OFF, read once at import; the Dockerfile does not set it).
+  - When on, the bot budgets the most shares fundable under the cent-floored `min($5, rules cap, cash)` at asks + $0.02.
+  - The immediate-loss limit scales to 0.08 USD per share; the stop-loss was already per share. If depth or the loss check fails, it falls back to the default 5-share budget.
+  - Default-mode action hashes are unchanged. Mechanics check (mechanics only, not edge): 0 sub-5 rejections. Cycles fell (median 19 vs 24) because in an edge-free world bigger positions lose cash faster.
+  - **Its edge is untested.** Turn it on only after real-data evidence.

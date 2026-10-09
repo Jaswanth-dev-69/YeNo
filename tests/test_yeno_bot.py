@@ -186,5 +186,30 @@ class ServerAndLock(unittest.TestCase):
             server.server_close()
 
 
+class SizeToCap(unittest.TestCase):
+    def test_off_by_default(self):
+        self.assertFalse(yeno_bot.SIZE_TO_CAP)
+
+    def test_sizes_toward_cap_and_never_exceeds_it(self):
+        from unittest import mock
+        import random
+        with mock.patch.object(yeno_bot, "SIZE_TO_CAP", True):
+            d = yeno_bot.HouseBot().decide(obs())
+            self.assertEqual(d["action"], "BUY")
+            self.assertTrue(4.9 <= d["maxCashUsd"] <= 5.0, d)
+            self.assertLessEqual(yeno_bot.HouseBot().decide(obs(cash=3.0))["maxCashUsd"], 3.0)
+            rng = random.Random(11)
+            for _ in range(1000):
+                ask = rng.randint(5, 90) / 100
+                asks = [[round(ask + k / 100, 2), round(rng.uniform(0.5, 30), 2)] for k in range(4)]
+                bids = [[round(ask - 0.01 - k / 100, 2), 80] for k in range(3)]
+                cash = round(rng.uniform(0.5, 12), 6)
+                d = yeno_bot.HouseBot().decide(obs(cash=cash, yes_asks=asks, yes_bids=bids))
+                if d["action"] == "BUY":
+                    self.assertLessEqual(d["maxCashUsd"], min(5.0, cash) + 1e-9)
+                    gross, fees = yeno_bot._buy_cost([[p + 0.02, q] for p, q in asks], 5.0)
+                    self.assertGreaterEqual(d["maxCashUsd"] + 1e-9, gross + fees)
+
+
 if __name__ == "__main__":
     unittest.main()

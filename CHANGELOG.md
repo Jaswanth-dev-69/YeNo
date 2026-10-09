@@ -24,3 +24,4 @@ Every simulator number below is **mechanics only, not edge**: synthetic books, n
 - sim: addendum semantics (fresh-book/no-pending call gating, snake_case position with market_id, sub-minimum BUYs rejected, qualification at first crossing); removed camelCase scenario; added thin-expiry; p50 latency.
 - verification: full suite for house-v1 and yeno-v2 on the addendum simulator; before/after table in sim/results/yeno-v2.txt.
 - packaging: Dockerfile (digest-pinned, stdlib only, runs as nobody), README.md, SUBMISSION.md.
+- 6: opt-in YENO_SIZE_TO_CAP=1 sizes BUYs toward the $5 cap (default off; edge untested).

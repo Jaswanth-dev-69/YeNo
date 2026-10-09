@@ -31,6 +31,8 @@ FORCED_EXIT_SECONDS = 60.0
 MAXIMUM_REFERENCE_AGE_SECONDS = 1.5
 BUY_HEADROOM_USD = 0.02  # fund the target shares even if asks move up 2 cents within the 250 ms
 MAXIMUM_BUY_CASH_USD = 5.0
+# Opt-in, edge untested: size BUYs toward the $5 cap instead of 5 shares (read once at import).
+SIZE_TO_CAP = os.environ.get("YENO_SIZE_TO_CAP") == "1"
 
 
 def _levels(rows: Any, *, reverse: bool) -> list[tuple[float, float]]:
@@ -77,6 +79,40 @@ def _sell_proceeds(bids: Any, shares: float) -> tuple[float, float] | None:
     if remaining > 1e-9:
         return None
     return sum(price * quantity for price, quantity in fills), _fees(fills)
+
+
+def _sized_budget(asks: Any, bids: Any, best_asks: list[tuple[float, float]], cap: float,
+                  minimum: float) -> float | None:
+    """Budget for the most shares fundable under cap at asks + 2 cents (YENO_SIZE_TO_CAP=1).
+
+    The immediate round-trip loss limit scales per share (0.40 USD per 5 shares); the stop-loss
+    is already per share. Returns None to fall back to the default 5-share budget.
+    """
+    shifted = [[price + BUY_HEADROOM_USD, size] for price, size in best_asks]
+    depth = sum(size for _, size in _levels(shifted, reverse=False))
+
+    def fits(hundredths: int) -> bool:
+        cost = _buy_cost(shifted, hundredths / 100)
+        return cost is not None and cost[0] + cost[1] <= cap + 1e-9
+
+    low, high = int(round(minimum * 100)), int(depth * 100 + 1e-6)
+    if high < low or not fits(low):
+        return None
+    while low < high:
+        middle = (low + high + 1) // 2
+        if fits(middle):
+            low = middle
+        else:
+            high = middle - 1
+    shares = low / 100
+    required, immediate_exit = _buy_cost(asks, shares), _sell_proceeds(bids, shares)
+    if required is None or immediate_exit is None:
+        return None
+    loss_limit = MAXIMUM_IMMEDIATE_LOSS_USD * shares / TARGET_SHARES
+    if immediate_exit[0] - immediate_exit[1] - required[0] - required[1] < -loss_limit - 1e-9:
+        return None
+    gross, fees = _buy_cost(shifted, shares)
+    return math.ceil((gross + fees) * 100 - 1e-9) / 100
 
 
 def _holding(observation: Any) -> bool:
@@ -202,8 +238,12 @@ class HouseBot:
         budget = math.ceil((padded[0] + padded[1]) * 100 - 1e-9) / 100
         ceiling = min(MAXIMUM_BUY_CASH_USD, float(account["cashUsd"]),
                       float(observation["rules"]["maximumBuyCashUsd"]))
-        if budget > math.floor(ceiling * 100 + 1e-9) / 100 + 1e-9:
+        cap = math.floor(ceiling * 100 + 1e-9) / 100
+        if budget > cap + 1e-9:
             return {"action": "HOLD"}
+        if SIZE_TO_CAP:
+            sized = _sized_budget(asks, books.get(side, {}).get("bids", []), best_asks, cap, shares)
+            budget = max(budget, sized or 0.0)
         self.last_buy_attempt_at = now
         return {"action": "BUY", "outcome": side, "maxCashUsd": round(budget, 2)}
 

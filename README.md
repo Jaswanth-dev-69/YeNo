@@ -20,6 +20,8 @@ YENO_BIND_HOST=0.0.0.0 YENO_PORT=9000 python3 yeno_bot.py
 python3 yeno-smoke-test.py                              # kit contract smoke test (in another terminal)
 ```
 
+Opt-in, edge untested: `YENO_SIZE_TO_CAP=1` sizes BUYs toward the $5 cap (default off).
+
 ## Docker
 ```bash
 docker build -t yeno-bot .

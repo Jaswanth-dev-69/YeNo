@@ -18,9 +18,9 @@ Nothing has been pushed or submitted. The owner submits.
 | Deterministic | ✅ | Decisions depend only on the observation sequence. Identical action hashes across repeat runs, in-process vs HTTP, and in-process vs container. |
 | No self-trading or coordination | ✅ | One bot, no outbound communication, no shared accounts. |
 | Pinned dependencies, clean build | ✅ | Stdlib only. `FROM python:3.12.8-slim-bookworm@sha256:2199a628…a2f0`. Built and run locally as `nobody`. |
+| Opt-in `YENO_SIZE_TO_CAP=1` | ⚠️ off by default | Sizes BUYs toward the $5 cap, still within `min($5, cash)` (property test). Its edge is untested; the Dockerfile does not set it. |
 | Edge | ⚠️ untested | The simulator measures mechanics only. No real-data evidence exists that this strategy reaches $1,000. |
 
 ## Immutable identifiers
-- `yeno_bot.py` sha256: `2b163673a8d9d9e72ee1761d8a1ac0232f11ca08b3fc6b905e5aedeb1ce96c57`
-- Last commit that changed `yeno_bot.py`: `62f7812`
+- `yeno_bot.py` sha256: `e890b3ed56f6918407232c4dc5189b1333bfa7571df73820e99ceef3cc43b417`
 - Final repository commit: the commit containing this file (`git log -1`; a file cannot contain its own SHA). It is also listed in the final report.
