@@ -42,3 +42,4 @@
   - The immediate-loss limit scales to 0.08 USD per share; the stop-loss was already per share. If depth or the loss check fails, it falls back to the default 5-share budget.
   - Default-mode action hashes are unchanged. Mechanics check (mechanics only, not edge): 0 sub-5 rejections. Cycles fell (median 19 vs 24) because in an edge-free world bigger positions lose cash faster.
   - **Its edge is untested.** Turn it on only after real-data evidence.
+- **Pre-push audit (Part 1).** All commits use only the GitHub no-reply address. No secrets, personal paths or other emails anywhere in history. Largest file 30 KB. Added the one-line summary to the top of the README.

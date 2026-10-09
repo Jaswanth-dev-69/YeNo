@@ -1,5 +1,7 @@
 # YeNo volume bot
 
+Paper-trading bot for the Builderr x YeNo volume-bot challenge. Stdlib-only, deterministic, no network calls in the bot.
+
 A `/decide` bot for the YeNo × Builderr volume-bot challenge. It is House Bot v1's strategy with mechanical fixes only (see `CHANGELOG.md`; decisions are logged in `NOTES.md`):
 
 - exits on partial bid depth, re-sending SELL until flat;
