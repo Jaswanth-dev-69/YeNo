@@ -88,5 +88,36 @@ class EntryWindow(unittest.TestCase):
             self.assertEqual(bot.decide(obs(seconds=seconds))["action"], expected, seconds)
 
 
+class BuyHeadroom(unittest.TestCase):
+    def test_sample_budget_is_five_shares_at_ask_plus_two_cents(self):
+        # 5 x 0.52 = 2.60 gross + 0.07*5*0.52*0.48 = 0.08736 + 1% = 0.026 -> 2.71336 -> 2.72
+        self.assertEqual(yeno_bot.HouseBot().decide(obs()), {"action": "BUY", "outcome": "YES",
+                                                             "maxCashUsd": 2.72})
+
+    def test_hold_when_cash_cannot_fund_headroom(self):
+        self.assertEqual(yeno_bot.HouseBot().decide(obs(cash=2.71)), HOLD)
+        self.assertEqual(yeno_bot.HouseBot().decide(obs(cash=2.72))["action"], "BUY")
+
+    def test_never_exceeds_cap_or_cash_and_always_funds_headroom(self):
+        import random
+        rng = random.Random(7)
+        buys = 0
+        for _ in range(3000):
+            ask = rng.randint(5, 90) / 100
+            asks = [[round(ask + k / 100, 2), round(rng.uniform(0.5, 8), 2)] for k in range(4)]
+            bids = [[round(ask - 0.01 - k / 100, 2), 50] for k in range(3)]
+            cash = round(rng.uniform(0.5, 12), 6)
+            d = yeno_bot.HouseBot().decide(obs(cash=cash, yes_asks=asks, yes_bids=bids))
+            if d["action"] != "BUY":
+                continue
+            buys += 1
+            cap = min(5.0, cash)
+            self.assertLessEqual(d["maxCashUsd"], cap + 1e-9)
+            self.assertEqual(d["maxCashUsd"], round(d["maxCashUsd"], 2))
+            gross, fees = yeno_bot._buy_cost([[p + 0.02, q] for p, q in asks], 5.0)
+            self.assertGreaterEqual(d["maxCashUsd"] + 1e-9, gross + fees)
+        self.assertGreater(buys, 500)
+
+
 if __name__ == "__main__":
     unittest.main()

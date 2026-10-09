@@ -18,3 +18,4 @@ Every simulator number below is **mechanics only, not edge**: synthetic books, n
 ## yeno_bot.py
 - 1a: SELL on whatever bid depth exists. An exit, once triggered, re-sends SELL until flat. Hard flatten from 60 s to close, including positions found inside that window.
 - 1b: entries only when 70 < secondsToClose <= 90 (late BUYs that were dumped on the next call are gone).
+- 1c: maxCashUsd = fee-inclusive cost of 5 shares at ask + $0.02 (rounded up to the cent), must fit under min($5, cash) rounded down, else HOLD.

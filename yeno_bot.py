@@ -25,6 +25,8 @@ ENTRY_WINDOW_SECONDS = 90.0
 ENTRY_FLOOR_SECONDS = 70.0  # FORCED_EXIT_SECONDS + 10 s, so no entry is dumped on the next call
 FORCED_EXIT_SECONDS = 60.0
 MAXIMUM_REFERENCE_AGE_SECONDS = 1.5
+BUY_HEADROOM_USD = 0.02  # fund the target shares even if asks move up 2 cents within the 250 ms
+MAXIMUM_BUY_CASH_USD = 5.0
 
 
 def _levels(rows: Any, *, reverse: bool) -> list[tuple[float, float]]:
@@ -176,12 +178,19 @@ class HouseBot:
         if sell_gross - sell_fees - gross - fees < -MAXIMUM_IMMEDIATE_LOSS_USD - 1e-9:
             return {"action": "HOLD"}
 
-        cash = gross + fees
-        ceiling = min(float(account["cashUsd"]), float(observation["rules"]["maximumBuyCashUsd"]))
-        if cash > ceiling + 1e-9:
+        # A fill below minOrderSize is rejected, so budget the target shares at asks + 2 cents
+        # (fee-inclusive, rounded up to the cent) and require it to fit under the cap, rounded down.
+        shares = max(TARGET_SHARES, float(books.get(side, {}).get("minOrderSize", 0) or 0))
+        padded = _buy_cost([[price + BUY_HEADROOM_USD, size] for price, size in best_asks], shares)
+        if padded is None:
+            return {"action": "HOLD"}
+        budget = math.ceil((padded[0] + padded[1]) * 100 - 1e-9) / 100
+        ceiling = min(MAXIMUM_BUY_CASH_USD, float(account["cashUsd"]),
+                      float(observation["rules"]["maximumBuyCashUsd"]))
+        if budget > math.floor(ceiling * 100 + 1e-9) / 100 + 1e-9:
             return {"action": "HOLD"}
         self.last_buy_attempt_at = now
-        return {"action": "BUY", "outcome": side, "maxCashUsd": round(cash, 6)}
+        return {"action": "BUY", "outcome": side, "maxCashUsd": round(budget, 2)}
 
     def _sell(self) -> dict[str, Any]:
         self.exiting = True
