@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Local mechanics simulator for the YeNo x Builderr volume-bot contract.
 
-MECHANICS ONLY, NOT EDGE. BTC paths and order books are synthetic, and the
+Mechanics only, not edge. BTC paths and order books are synthetic, and the
 books are priced off the same BTC path the bot sees, so no strategy has a real
 edge here (the "lagged" scenario adds an artificial one only to keep bots
 trading all day). Use this to check that a bot obeys the contract under
@@ -11,6 +11,10 @@ Volume, cash and drawdown printed here say nothing about the official score.
 Execution follows yeno-evaluator-contract.md as literally as possible. Where
 the contract is silent, the choice is a Scenario knob, so a bot can be tested
 under each reading:
+  * Builderr's contract addendum (NOTES.md) is applied: /decide is called only
+    when both books updated within 2 s and nothing is pending; the position is
+    snake_case with market_id; BUY fills below minOrderSize are rejected; a run
+    qualifies when a completed cycle first reaches the target (flat by then).
   * A decision executes against the first update of that outcome's book at or
     after decision + 250 ms. If none arrives within 2 s, it is rejected as
     stale. A pending action blocks any further BUY or SELL.
@@ -20,8 +24,6 @@ under each reading:
   * A position still open at market close settles at 1 or 0 and its cycle
     adds zero volume. Terminal flat = no position and no pending action when
     the window ends.
-  * The position object's keys are undocumented: snake_case by default (what
-    House Bot v1 reads), camelCase in the "schema" scenario.
 """
 
 from __future__ import annotations
@@ -45,7 +47,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Callable
 
-LABEL = "MECHANICS ONLY, NOT EDGE"
+LABEL = "mechanics only, not edge"
 MARKET_SECONDS = 300.0
 NOISE_BUCKET_SECONDS = 5.0             # quote noise and spread persist for this long
 LATENCY_SECONDS = 0.25
@@ -75,11 +77,11 @@ class Scenario:
     missing_ref_prob: float = 0.0      # per observation: chance the reference is absent
     target_delay_max: float = 6.0      # target turns final 1..max seconds after open
     onesided: str = "near_expiry"      # "none" | "near_expiry" | "aggressive"
-    position_keys: str = "snake"       # "snake" | "camel"
     string_numbers: bool = False       # book levels sent as strings
     unsorted_levels: bool = False
     int_seconds: bool = False          # secondsToClose sent as a floored int
-    buy_below_min: str = "allow"       # "allow" | "reject" BUY fills under minOrderSize
+    thin_expiry: bool = False          # persistently thin or one-sided books in the last 90 s
+    buy_below_min: str = "reject"      # "allow" | "reject" BUY fills under minOrderSize
     sell_below_min: str = "allow"      # "allow" | "reject" SELL fills under minOrderSize
     late_exec_prob: float = 0.0        # ambiguous write: executes 0.5-4 s late
     drop_exec_prob: float = 0.0        # ambiguous write: never executes
@@ -95,15 +97,14 @@ SCENARIOS: dict[str, Scenario] = {
         Scenario("stale", stale_book_prob=0.3, stale_ref_prob=0.5, missing_ref_prob=0.02,
                  target_delay_max=20.0),
         Scenario("onesided", onesided="aggressive"),
-        Scenario("schema", position_keys="camel", string_numbers=True, unsorted_levels=True,
-                 int_seconds=True),
+        Scenario("thin-expiry", thin_expiry=True),
         Scenario("timeouts", late_exec_prob=0.15, drop_exec_prob=0.05, obs_gap_prob=0.01),
         Scenario("minsize", buy_below_min="reject", sell_below_min="reject", thin_prob=0.3),
         Scenario("lagged", book_lag_seconds=5.0),
         Scenario("short-window", hours=1.0, target_usd=40.0, book_lag_seconds=5.0),
         Scenario("everything", thin_prob=0.3, depth_mean=20.0, stale_book_prob=0.3,
                  stale_ref_prob=0.5, missing_ref_prob=0.02, target_delay_max=20.0,
-                 onesided="aggressive", position_keys="camel", string_numbers=True,
+                 onesided="aggressive", string_numbers=True,
                  unsorted_levels=True, int_seconds=True, buy_below_min="reject",
                  sell_below_min="reject", late_exec_prob=0.15, drop_exec_prob=0.05,
                  obs_gap_prob=0.01),
@@ -113,7 +114,7 @@ SCENARIOS: dict[str, Scenario] = {
 # (scenario, adverse cents, seed multiplier) run by default.
 DEFAULT_SUITE: list[tuple[str, float, int]] = [
     ("baseline", 0, 1), ("baseline", 1, 1), ("baseline", 2, 1), ("baseline", 3, 1),
-    ("partial", 0, 1), ("stale", 0, 1), ("onesided", 0, 1), ("schema", 0, 1),
+    ("partial", 0, 1), ("stale", 0, 1), ("onesided", 0, 1), ("thin-expiry", 0, 1),
     ("timeouts", 0, 1), ("minsize", 0, 1), ("lagged", 0, 1), ("everything", 0, 1),
     ("short-window", 0, 8),
 ]
@@ -138,7 +139,7 @@ def take(levels: list[tuple[float, float]], shares: float) -> list[tuple[float, 
 
 class Market:
     __slots__ = ("idx", "id", "open", "close", "target", "target_final_at", "provisional_target",
-                 "times", "quote", "stale_ref")
+                 "times", "quote", "stale_ref", "expiry_mode")
 
 
 class World:
@@ -187,6 +188,11 @@ class World:
                         ts.append(t)
                     t += rng.expovariate(1 / sc.book_update_mean)
                 m.times[outcome] = ts
+            m.expiry_mode = {"YES": "normal", "NO": "normal"}
+            if sc.thin_expiry:
+                for outcome in ("YES", "NO"):
+                    m.expiry_mode[outcome] = rng.choices(
+                        ("thin", "patchy", "onesided", "normal"), weights=(4, 3, 1, 2))[0]
             m.stale_ref = None
             if rng.random() < sc.stale_ref_prob:
                 s0 = rng.uniform(m.open, m.close - 2)
@@ -234,6 +240,12 @@ class World:
         bids = [(c / 100, size(j)) for j, c in enumerate(range(bid_c, max(bid_c - 5, 0), -1))]
         asks = [(c / 100, size(j)) for j, c in enumerate(range(ask_c, min(ask_c + 5, 100)))]
         remaining = m.close - t
+        mode = m.expiry_mode[outcome]
+        if remaining < 90 and mode == "thin":
+            bids = [(px, round(r.uniform(0.5, 3.0), 2)) for px, _ in bids]
+            asks = [(px, round(r.uniform(0.5, 3.0), 2)) for px, _ in asks]
+        elif remaining < 90 and (mode == "onesided" or (mode == "patchy" and r.random() < 0.6)):
+            bids = []
         if sc.onesided == "near_expiry":
             if remaining < 30 and fair > 0.95 and r.random() < 0.8:
                 asks = []
@@ -333,7 +345,7 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
             f = take(asks, shares)
             gross, fee = sum(px * q for px, q in f), fees(f)
             cash -= gross + fee
-            pos = {"outcome": p["outcome"], "shares": shares, "buy_gross": gross, "buy_fees": fee,
+            pos = {"market_id": m.id, "outcome": p["outcome"], "shares": shares, "buy_gross": gross, "buy_fees": fee,
                    "sell_gross": 0.0, "sell_fees": 0.0}
             st["buy_fills"] += 1
             return
@@ -368,13 +380,10 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
     def position_view() -> dict[str, Any] | None:
         if pos is None:
             return None
-        names = (("buy_gross_usd", "buy_fees_usd", "sell_gross_usd", "sell_fees_usd")
-                 if sc.position_keys == "snake" else
-                 ("buyGrossUsd", "buyFeesUsd", "sellGrossUsd", "sellFeesUsd"))
-        values = (pos["buy_gross"], pos["buy_fees"], pos["sell_gross"], pos["sell_fees"])
-        view = {"outcome": pos["outcome"], "shares": pos["shares"]}
-        view.update({k: round(v, 6) for k, v in zip(names, values)})
-        return view
+        return {"market_id": pos["market_id"], "outcome": pos["outcome"], "shares": pos["shares"],
+                "buy_gross_usd": round(pos["buy_gross"], 6), "buy_fees_usd": round(pos["buy_fees"], 6),
+                "sell_gross_usd": round(pos["sell_gross"], 6),
+                "sell_fees_usd": round(pos["sell_fees"], 6)}
 
     def book_view(book: dict[str, list[tuple[float, float]]] | None, t: float) -> dict[str, Any]:
         out: dict[str, Any] = {"bids": [], "asks": [], "minOrderSize": sc.min_order_size}
@@ -404,6 +413,13 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
             "targetProvisional": not final,
         }
 
+    def advance(t: float) -> float:
+        nxt = t + sc.obs_interval + obs_rng.uniform(-sc.obs_jitter, sc.obs_jitter)
+        if obs_rng.random() < sc.obs_gap_prob:
+            nxt += obs_rng.uniform(2, 10)
+            st["injected_obs_gaps"] += 1
+        return nxt
+
     while True:
         m = w.markets[mi]
         events = [(t_obs, 3, "obs"), (m.close, 1, "close"), (w.t_end, 2, "end")]
@@ -432,9 +448,26 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
             mi += 1
             continue
 
-        # Observation.
-        books = {o: w.latest(m, o, t) for o in ("YES", "NO")}
+        # Observation. Per the addendum, /decide is called only when both books updated within
+        # 2 s and no action is pending; skipped ticks still advance the (bot-independent) clock.
         seconds = m.close - t
+        books, stale = {}, False
+        for o in ("YES", "NO"):
+            i = bisect_right(m.times[o], t) - 1
+            books[o] = w.snapshot(m, o, i) if i >= 0 else None
+            stale = stale or i < 0 or t - m.times[o][i] > STALE_BOOK_SECONDS
+        ref = reference_view(m, t)
+
+        mark = 0.0
+        if pos is not None and books[pos["outcome"]] and books[pos["outcome"]]["bids"]:
+            mark = pos["shares"] * books[pos["outcome"]]["bids"][0][0]
+        peak_eq = max(peak_eq, cash + mark)
+        max_dd_eq = max(max_dd_eq, peak_eq - cash - mark)
+
+        if pend is not None or stale:
+            st["calls_skipped_pending" if pend is not None else "calls_skipped_stale_book"] += 1
+            t_obs = advance(t)
+            continue
         obs = {
             "schemaVersion": 1,
             "timestamp": round(t, 3),
@@ -447,15 +480,8 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
                       "buyFeesIncludedInMaximum": True},
             "books": {o: book_view(b, t) for o, b in books.items()},
         }
-        ref = reference_view(m, t)
         if ref is not None:
             obs["reference"] = ref
-
-        mark = 0.0
-        if pos is not None and books[pos["outcome"]] and books[pos["outcome"]]["bids"]:
-            mark = pos["shares"] * books[pos["outcome"]]["bids"][0][0]
-        peak_eq = max(peak_eq, cash + mark)
-        max_dd_eq = max(max_dd_eq, peak_eq - cash - mark)
 
         started = time.perf_counter()
         try:
@@ -510,10 +536,7 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
         elif action != "HOLD":
             st["invalid_responses"] += 1
 
-        t_obs = t + sc.obs_interval + obs_rng.uniform(-sc.obs_jitter, sc.obs_jitter)
-        if obs_rng.random() < sc.obs_gap_prob:
-            t_obs += obs_rng.uniform(2, 10)
-            st["injected_obs_gaps"] += 1
+        t_obs = advance(t)
 
     flat = pos is None and pend is None
     latencies.sort()
@@ -523,10 +546,12 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
         "volume": round(volume, 4), "cycles": cycles, "cash_end": round(cash, 4),
         "flat": flat,
         "not_flat_reason": None if flat else ("position" if pos is not None else "pending_action"),
-        "qualified": flat and volume >= sc.target_usd - EPS,
+        # The crossing happens when a cycle fully closes, so the bot is flat with nothing pending.
+        "qualified": cross_seconds is not None,
         "cross_seconds": cross_seconds and round(cross_seconds, 1),
         "cross_cash": cross_cash and round(cross_cash, 4),
         "max_dd_equity": round(max_dd_eq, 4), "max_dd_cash": round(max_dd_cash, 4),
+        "latency_ms_p50": round(latencies[len(latencies) // 2] * 1000, 3) if latencies else None,
         "latency_ms_p99": round(latencies[int(0.99 * (len(latencies) - 1))] * 1000, 3) if latencies else None,
         "latency_ms_max": round(latencies[-1] * 1000, 3) if latencies else None,
         "stats": dict(sorted(st.items())),
@@ -571,9 +596,9 @@ def summarize(rows: list[dict[str, Any]]) -> str:
     groups: dict[tuple[str, float], list[dict[str, Any]]] = {}
     for r in rows:
         groups.setdefault((r["scenario"], r["adverse_cents"]), []).append(r)
-    head = (f"{'scenario':<13}{'adv':>4}{'runs':>5}{'med vol':>9}{'best vol':>9}{'flat%':>7}"
-            f"{'qual%':>7}{'med cash':>9}{'med DDeq':>9}{'settled':>8}{'late buy':>9}"
-            f"{'after tgt':>10}{'errors':>7}")
+    head = (f"{'scenario':<13}{'adv':>4}{'runs':>5}{'med vol':>9}{'best vol':>9}{'qual%':>6}"
+            f"{'med cash':>9}{'med DDeq':>9}{'med cyc':>8}{'settled':>8}{'<5sh rej':>9}"
+            f"{'late buy':>9}{'errors':>7}")
     lines = [f"=== {LABEL} === synthetic books; volumes and cash are not evidence of edge", head]
     for (name, cents), rs in groups.items():
         n = len(rs)
@@ -582,23 +607,23 @@ def summarize(rows: list[dict[str, Any]]) -> str:
         lines.append(
             f"{name:<13}{cents:>4.0f}{n:>5}"
             f"{statistics.median(r['volume'] for r in rs):>9.1f}{max(r['volume'] for r in rs):>9.1f}"
-            f"{100 * sum(r['flat'] for r in rs) / n:>7.0f}{100 * sum(r['qualified'] for r in rs) / n:>7.0f}"
+            f"{100 * sum(r['qualified'] for r in rs) / n:>6.0f}"
             f"{statistics.median(r['cash_end'] for r in rs):>9.2f}"
             f"{statistics.median(r['max_dd_equity'] for r in rs):>9.2f}"
+            f"{statistics.median(r['cycles'] for r in rs):>8.0f}"
             f"{sum(r['stats'].get('settled_positions', 0) for r in rs):>8}"
-            f"{sum(r['stats'].get('buys_sent_<=60s_to_close', 0) for r in rs):>9}"
-            f"{sum(r['stats'].get('buys_sent_after_target', 0) for r in rs):>10}{errors:>7}")
+            f"{sum(r['rejects'].get('BUY:below_min_size', 0) for r in rs):>9}"
+            f"{sum(r['stats'].get('buys_sent_<=60s_to_close', 0) for r in rs):>9}{errors:>7}")
     lines.append("")
-    lines.append("rejections and non-flat finishes (summed over runs):")
+    lines.append(f"rejections, partial sells and skipped calls, summed over runs ({LABEL}):")
     for (name, cents), rs in groups.items():
         rej: Counter[str] = Counter()
         for r in rs:
             rej.update(r["rejects"])
-        not_flat = Counter(r["not_flat_reason"] for r in rs if not r["flat"])
         partial = sum(r["stats"].get("partial_sells", 0) for r in rs)
-        dust = sum(r["stats"].get("buys_below_min_size", 0) for r in rs)
-        lines.append(f"  {name}@{cents:.0f}c: not_flat={dict(not_flat)} partial_sells={partial} "
-                     f"buys_below_min={dust} rejects={dict(rej.most_common(6))}")
+        skipped = sum(r["stats"].get("calls_skipped_stale_book", 0) for r in rs)
+        lines.append(f"  {name}@{cents:.0f}c: partial_sells={partial} skipped_stale_calls={skipped} "
+                     f"rejects={dict(rej.most_common(5))}")
     return "\n".join(lines)
 
 

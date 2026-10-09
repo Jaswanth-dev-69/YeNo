@@ -18,3 +18,11 @@
   - Result (mechanics only, not edge): sub-5-share BUY fills fell from 57% to 19% in baseline. The rest are moves larger than 2 cents, or thin depth, in the simulated latency window.
 - **1d Safety net.** `decide` now catches every `Exception`, not just the house bot's four types. If `account.position` is non-null, it returns SELL and sets the `exiting` latch, so a position the bot couldn't value is closed even if later calls parse cleanly. Otherwise it returns HOLD. No camelCase parsing. Regression: 24/24 action hashes unchanged.
 - **1e Lock and bind.** `HouseBot.decide` runs under a `threading.Lock` (the in-process simulator exercises it too). Host comes from `YENO_BIND_HOST` (default 127.0.0.1) and port from `YENO_PORT` (default 8080). Both are read once at startup; the hot path does no I/O or logging. Regression: 24/24 action hashes unchanged.
+- **2 Simulator follows the addendum.**
+  - Removed the camelCase `schema` scenario and the `position_keys` knob; `everything` keeps the string, unsorted and int-seconds variants.
+  - The position now carries `market_id`.
+  - `/decide` is skipped whenever a book's last update is more than 2 s old, or an action is pending. The `stale` scenario therefore skips calls instead of sending stale books.
+  - BUY fills under 5 shares are rejected by default. `qualified` = a completed cycle reached the target.
+  - New `thin-expiry` scenario: per market and outcome, the last 90 s are thin (0.5–3 shares per level) 40% of the time, patchy (bids missing on 60% of updates) 30%, fully one-sided 10%, normal 20%.
+  - `minsize` now differs from the default only in also rejecting sub-minimum SELLs.
+  - The saved `house-v1.txt` came from the pre-addendum simulator; the final suite regenerates it on this version.
