@@ -80,5 +80,13 @@ class SellLogic(unittest.TestCase):
         self.assertEqual(bot.decide(obs(position=held(market="old"), yes_bids=[[0.49, 100]])), SELL)
 
 
+class EntryWindow(unittest.TestCase):
+    def test_only_between_70_and_90_seconds(self):
+        for seconds, expected in ((91, "HOLD"), (90, "BUY"), (80, "BUY"), (70.5, "BUY"),
+                                  (70, "HOLD"), (60, "HOLD"), (40, "HOLD"), (16, "HOLD")):
+            bot = yeno_bot.HouseBot()
+            self.assertEqual(bot.decide(obs(seconds=seconds))["action"], expected, seconds)
+
+
 if __name__ == "__main__":
     unittest.main()

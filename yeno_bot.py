@@ -22,6 +22,7 @@ STOP_LOSS_PER_SHARE_USD = 0.10
 MAXIMUM_CYCLES_PER_MARKET = 2
 REENTRY_COOLDOWN_SECONDS = 2.0
 ENTRY_WINDOW_SECONDS = 90.0
+ENTRY_FLOOR_SECONDS = 70.0  # FORCED_EXIT_SECONDS + 10 s, so no entry is dumped on the next call
 FORCED_EXIT_SECONDS = 60.0
 MAXIMUM_REFERENCE_AGE_SECONDS = 1.5
 
@@ -147,7 +148,7 @@ class HouseBot:
             return {"action": "HOLD"}
         if now - self.last_buy_attempt_at < REENTRY_COOLDOWN_SECONDS - 1e-9:
             return {"action": "HOLD"}
-        if not (15 < seconds <= ENTRY_WINDOW_SECONDS):
+        if not (ENTRY_FLOOR_SECONDS < seconds <= ENTRY_WINDOW_SECONDS):
             return {"action": "HOLD"}
 
         reference = observation.get("reference")
