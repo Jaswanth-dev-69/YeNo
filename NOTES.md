@@ -16,3 +16,4 @@
   - Ask levels that reach 1.00 after the shift are dropped, so 5 shares may not be fundable there (HOLD).
   - If the price doesn't move, about 5.1 shares fill. The immediate-loss check still uses 5 shares at the observed book.
   - Result (mechanics only, not edge): sub-5-share BUY fills fell from 57% to 19% in baseline. The rest are moves larger than 2 cents, or thin depth, in the simulated latency window.
+- **1d Safety net.** `decide` now catches every `Exception`, not just the house bot's four types. If `account.position` is non-null, it returns SELL and sets the `exiting` latch, so a position the bot couldn't value is closed even if later calls parse cleanly. Otherwise it returns HOLD. No camelCase parsing. Regression: 24/24 action hashes unchanged.

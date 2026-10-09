@@ -119,5 +119,25 @@ class BuyHeadroom(unittest.TestCase):
         self.assertGreater(buys, 500)
 
 
+class SafetyNet(unittest.TestCase):
+    def test_malformed_position_sells(self):
+        for position in ({}, {"outcome": "YES"}, {"outcome": "YES", "shares": "x"}, [], "junk", 5,
+                         {"outcome": "YES", "shares": 5, "buy_gross_usd": None}):
+            bot = yeno_bot.HouseBot()
+            self.assertEqual(bot.decide(obs(position=position)), SELL, position)
+
+    def test_error_while_holding_latches_exit(self):
+        bot = yeno_bot.HouseBot()
+        t = 1_789_880_823.619
+        self.assertEqual(bot.decide(obs(t=t, position={"outcome": "YES"})), SELL)
+        self.assertEqual(bot.decide(obs(t=t + 1, position=held(), yes_bids=[[0.49, 100]])), SELL)
+
+    def test_errors_while_flat_hold(self):
+        broken = obs()
+        broken["books"] = None
+        for o in (None, {}, {"account": {}}, broken, {"account": {"position": None}}):
+            self.assertEqual(yeno_bot.HouseBot().decide(o), HOLD)
+
+
 if __name__ == "__main__":
     unittest.main()

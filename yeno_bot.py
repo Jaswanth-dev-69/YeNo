@@ -75,6 +75,13 @@ def _sell_proceeds(bids: Any, shares: float) -> tuple[float, float] | None:
     return sum(price * quantity for price, quantity in fills), _fees(fills)
 
 
+def _holding(observation: Any) -> bool:
+    try:
+        return observation["account"]["position"] is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
 class HouseBot:
     def __init__(self) -> None:
         self.market_id: str | None = None
@@ -87,7 +94,9 @@ class HouseBot:
     def decide(self, observation: dict[str, Any]) -> dict[str, Any]:
         try:
             return self._decide(observation)
-        except (KeyError, TypeError, ValueError, OverflowError):
+        except Exception:  # noqa: BLE001 - a bad field must never strand an open position
+            if _holding(observation):
+                return self._sell()
             return {"action": "HOLD"}
 
     def _decide(self, observation: dict[str, Any]) -> dict[str, Any]:
