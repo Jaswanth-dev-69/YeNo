@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""Development baseline for the YeNo × Builderr Volume Bot Challenge.
+"""YeNo × Builderr volume bot: House Bot v1 with mechanical fixes.
 
-Evidence class: development diagnostic on resampled recorded regimes.
-This bot did not qualify: its best terminal-flat run was $942.59 and no
-validation path crossed the $1,000 target. Treat it as a starting point.
+Strategy (entry signal, exit rules, 5-share size) is House Bot v1's. Changes are
+mechanical only: exits on partial bid depth and latched until flat, no entries
+inside 70 s of close, BUY cash headroom for a 2-cent move, SELL on any error while
+holding, and a lock around shared state. See CHANGELOG.md and NOTES.md.
+Deterministic, stdlib only, no network or disk I/O at decision time.
 """
 
 from __future__ import annotations
 
 import json
 import math
+import os
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 
@@ -90,14 +94,16 @@ class HouseBot:
         self.last_flat_at = -math.inf
         self.last_buy_attempt_at = -math.inf
         self.exiting = False
+        self._lock = threading.Lock()
 
     def decide(self, observation: dict[str, Any]) -> dict[str, Any]:
-        try:
-            return self._decide(observation)
-        except Exception:  # noqa: BLE001 - a bad field must never strand an open position
-            if _holding(observation):
-                return self._sell()
-            return {"action": "HOLD"}
+        with self._lock:
+            try:
+                return self._decide(observation)
+            except Exception:  # noqa: BLE001 - a bad field must never strand an open position
+                if _holding(observation):
+                    return self._sell()
+                return {"action": "HOLD"}
 
     def _decide(self, observation: dict[str, Any]) -> dict[str, Any]:
         market = observation["market"]
@@ -231,5 +237,9 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
+def _bind_address() -> tuple[str, int]:
+    return os.environ.get("YENO_BIND_HOST", "127.0.0.1"), int(os.environ.get("YENO_PORT", "8080"))
+
+
 if __name__ == "__main__":
-    ThreadingHTTPServer(("127.0.0.1", 8080), Handler).serve_forever()
+    ThreadingHTTPServer(_bind_address(), Handler).serve_forever()

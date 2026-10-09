@@ -139,5 +139,52 @@ class SafetyNet(unittest.TestCase):
             self.assertEqual(yeno_bot.HouseBot().decide(o), HOLD)
 
 
+class ServerAndLock(unittest.TestCase):
+    def test_decide_waits_for_the_lock(self):
+        import threading
+        bot = yeno_bot.HouseBot()
+        results = []
+        with bot._lock:
+            worker = threading.Thread(target=lambda: results.append(bot.decide(obs())))
+            worker.start()
+            worker.join(0.2)
+            self.assertTrue(worker.is_alive())
+        worker.join(2)
+        self.assertEqual(results[0]["action"], "BUY")
+
+    def test_concurrent_calls_stay_valid(self):
+        from concurrent.futures import ThreadPoolExecutor
+        bot = yeno_bot.HouseBot()
+        t = 1_789_880_823.619
+        cases = [obs(t=t + k, seconds=95 - k % 40, position=held() if k % 3 else None,
+                     market=f"m{k % 4}") for k in range(400)]
+        with ThreadPoolExecutor(16) as pool:
+            out = list(pool.map(bot.decide, cases))
+        self.assertTrue(all(d["action"] in ("HOLD", "BUY", "SELL") for d in out))
+
+    def test_bind_address_from_env(self):
+        import os
+        from unittest import mock
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(yeno_bot._bind_address(), ("127.0.0.1", 8080))
+        with mock.patch.dict(os.environ, {"YENO_BIND_HOST": "0.0.0.0", "YENO_PORT": "9001"}):
+            self.assertEqual(yeno_bot._bind_address(), ("0.0.0.0", 9001))
+
+    def test_http_round_trip(self):
+        import threading
+        import urllib.request
+        server = yeno_bot.ThreadingHTTPServer(("127.0.0.1", 0), yeno_bot.Handler)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            url = f"http://127.0.0.1:{server.server_address[1]}/decide"
+            request = urllib.request.Request(url, data=json.dumps(obs(seconds=30)).encode(),
+                                             method="POST")
+            with urllib.request.urlopen(request, timeout=2) as response:
+                self.assertEqual(json.loads(response.read()), HOLD)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+
 if __name__ == "__main__":
     unittest.main()
