@@ -1,0 +1,83 @@
+design grid for yeno_bot v3 exits (mechanics only, not edge)
+simulator: this commit's sim/yeno_sim.py (an open position at market change ends the run; "cliff" =
+fading liquidity near close). Variants were copies of intermediate yeno_bot.py with constants patched;
+"stops" = runs ended by a position open at market change. hold/cyc = mean seconds from BUY fill to flat.
+
+variant key
+  v2        committed submission-v1 bot (stops 0.10/share fee-inclusive, entries 70-90 s, flatten 60 s)
+  nobids    SELL (latched) when the held side has no bids
+  thin1/2   SELL (latched) when bids cover < 1x / 2x the position
+  hold20/10 maximum hold 20 s / 10 s
+  stop05    fee-inclusive stop at 0.05/share instead of 0.10
+  floor30   SELL when the best bid < 0.30
+  edepth3   entry needs bids for 3x the shares
+  early75/90 forced exit from 75/90 s, entries (F+10, F+30] s
+  A = nobids+thin1+hold20; B = nobids+thin2+hold10; C = B+edepth3; D = C+floor30
+  B5/B7 = B with fee-inclusive stop 0.05/0.07; d2 = entry depth 2x; e90 etc. = earlier window
+  v3        stage 4: B5e90 + entry depth 2x + entry immediate-loss limit tied to the stop
+  v3-moveNc stage 5: final shape, stop on an N-cent gross price move (fees excluded), entry spread
+            must be inside it; v3-move3c is the shipped yeno_bot.py
+
+--- stage 1b
+=== mechanics only, not edge === design grid; seeds per scenario: {'baseline': 6, 'partial': 6, 'stale': 6, 'onesided': 16, 'thin-expiry': 16, 'cliff': 32, 'timeouts': 6, 'everything': 6}
+variant      stops baseline  partial    stale onesided thin-exp    cliff timeouts everythi minmkt  medvol medcyc vol/cyc  fee% medcash hold/cyc
+v2              10        0        0        0        0        3        7        0        0      4   182.8     21    8.72  2.03    3.75      8.4
+nobids           5        0        0        0        0        3        2        0        0      4   185.0     21    8.71  2.03    3.82      7.7
+thin1            5        0        0        0        0        3        2        0        0      4   184.9     21    8.71  2.03    3.80      7.7
+thin2            5        0        0        0        0        3        2        0        0      4   184.3     21    8.71  2.04    3.82      7.1
+hold20          11        0        0        0        0        3        8        0        0      4   182.3     21    8.72  2.03    3.73      8.3
+hold10           8        0        0        0        0        3        5        0        0      4   176.7     20    8.72  2.03    3.86      7.3
+stop05           6        0        0        0        0        4        2        0        0      4   190.4     22    8.72  2.04    3.94      2.8
+floor30         10        0        0        0        0        3        7        0        0      4   182.8     21    8.72  2.03    3.75      8.4
+edepth3         14        0        0        0        0        7        7        0        0      4   189.3     22    8.72  2.03    3.77      8.5
+early75         13        0        0        0        0        9        4        0        0      4   187.8     22    8.60  2.11    3.75      8.4
+early90          5        0        0        0        0        1        4        0        0      2   189.4     22    8.50  2.18    3.72      8.7
+A                5        0        0        0        0        3        2        0        0      4   184.9     21    8.71  2.04    3.80      7.6
+B                5        0        0        0        0        3        2        0        0      4   183.8     21    8.72  2.03    3.84      6.3
+C                9        0        0        0        0        7        2        0        0      4   184.6     21    8.72  2.03    3.85      6.6
+D                9        0        0        0        0        7        2        0        0      4   184.6     21    8.72  2.03    3.85      6.6
+
+--- stage 2
+=== mechanics only, not edge === design grid; seeds per scenario: {'baseline': 6, 'partial': 6, 'stale': 6, 'onesided': 16, 'thin-expiry': 24, 'cliff': 48, 'timeouts': 6, 'everything': 6}
+variant      stops baseline  partial    stale onesided thin-exp    cliff timeouts everythi minmkt  medvol medcyc vol/cyc  fee% medcash hold/cyc
+v2              11        0        0        0        0        4        7        0        0      4   183.3     21    8.73  2.03    3.78      8.5
+B                5        0        0        0        0        3        2        0        0      4   191.5     22    8.73  2.03    3.85      6.2
+B7               4        0        0        0        0        2        2        0        0      4   191.7     22    8.73  2.03    3.94      4.6
+B5               3        0        0        0        0        2        1        0        0      4   191.5     22    8.72  2.04    3.94      2.6
+B5d2             5        0        0        0        0        4        1        0        0      4   191.5     22    8.72  2.04    3.94      2.6
+B5e90            3        0        0        0        0        0        3        0        0      2   194.9     23    8.50  2.19    3.79      2.8
+B5e100           3        0        0        0        0        0        3        0        0     12   185.1     22    8.43  2.24    3.74      2.6
+B5d2e90          3        0        0        0        0        0        3        0        0      2   194.9     23    8.49  2.19    3.79      2.8
+B7e90            3        0        0        0        0        0        3        0        0      2   187.6     22    8.50  2.19    3.78      5.1
+
+--- stage 3
+=== mechanics only, not edge === design grid; seeds per scenario: {'onesided': 32, 'thin-expiry': 64, 'cliff': 128, 'everything': 16, 'stale': 16}
+variant      stops onesided thin-exp    cliff everythi    stale minmkt  medvol medcyc vol/cyc  fee% medcash hold/cyc
+v2              38        0       15       23        0        0      1   175.3     20    8.72  2.03    3.83      8.3
+B5              16        0       10        6        0        0      1   190.0     22    8.72  2.05    3.96      2.6
+B5e75           18        0       11        7        0        0      0   188.6     22    8.60  2.12    3.84      2.7
+B5e90           10        0        0       10        0        0      2   194.7     23    8.50  2.19    3.78      2.7
+
+--- stage 4
+=== mechanics only, not edge === design grid; seeds per scenario: {'onesided': 32, 'thin-expiry': 64, 'cliff': 128, 'everything': 16, 'stale': 16}
+variant      stops onesided thin-exp    cliff everythi    stale minmkt  medvol medcyc vol/cyc  fee% medcash hold/cyc
+v3               9        0        0        9        0        0     16   205.5     24    8.56  2.15    3.90      3.5
+v3-loss0.40      9        0        0        9        0        0      2   194.8     23    8.50  2.19    3.78      2.7
+
+--- stage 5
+=== mechanics only, not edge === design grid; seeds per scenario: {'onesided': 32, 'thin-expiry': 64, 'cliff': 128, 'everything': 16, 'stale': 16}
+variant      stops onesided thin-exp    cliff everythi    stale minmkt  medvol medcyc vol/cyc  fee% medcash hold/cyc
+v2              38        0       15       23        0        0      1   175.3     20    8.72  2.03    3.83      8.3
+v3-move2c       10        0        0       10        0        0     15   209.3     25    8.53  2.17    3.80      3.6
+v3-move3c       10        0        0       10        0        0      2   194.4     23    8.50  2.18    3.75      4.4
+v3-move4c       11        0        0       11        0        0      2   188.8     22    8.50  2.18    3.72      5.2
+
+reading
+  * Stages 1-2: every exit rule cut cliff stops (7 -> 2 of 32) by selling while bids still existed;
+    none could fix thin-expiry stops, which are BUYs that filled just after the 90 s regime switch
+    into a book with no bids for the rest of the market. Only moving the whole window before that
+    switch (e90) removed them.
+  * Stage 3 (256 stress runs): v2 38 stops, B5 16, B5e75 18, B5e90 10.
+  * Stage 4-5: a fee-inclusive 0.05 stop is price-level dependent (at a 0.50 ask the fees alone pass
+    it), so the stop became a gross price move. 2c and 3c both give 10 stops; 3c is kept because it
+    still allows entries on a 2-tick spread (real spreads are unknown).

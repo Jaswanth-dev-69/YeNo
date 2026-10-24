@@ -1,0 +1,56 @@
+=== calculation only, not edge === zero-edge round trips; effect on edge is UNTESTED
+
+1. Fee drag per $ of volume and cycles $10 supports (5-share BUYs, yeno_bot budget rule)
+  ask  sprd fee/$vol sprd/$vol vol/cyc loss/cyc min BUY cycles  volume $ for 1k edge/$ for 1k
+ 0.30    1c    5.93%     1.69%    3.16    0.241    1.70     35     110    76.30         6.80%
+ 0.40    1c    5.23%     1.27%    4.15    0.270    2.21     29     120    65.01         5.72%
+ 0.50    1c    4.53%     1.01%    5.15    0.285    2.72     26     134    55.45         4.82%
+ 0.60    1c    3.83%     0.84%    6.15    0.288    3.22     24     148    46.75         4.00%
+ 0.70    1c    3.13%     0.72%    7.14    0.275    3.71     23     164    38.54         3.23%
+ 0.80    1c    2.43%     0.63%    8.14    0.249    4.20     24     195    30.64         2.48%
+ 0.85    1c    2.08%     0.59%    8.64    0.231    4.44     25     216    26.77         2.12%
+ 0.90    1c    1.73%     0.56%    9.15    0.210    4.68     26     238    22.93         1.76%
+ 0.30    2c    5.97%     3.45%    3.10    0.292    1.70     29      90    94.16         8.59%
+ 0.40    2c    5.27%     2.56%    4.10    0.321    2.21     25     102    78.32         7.05%
+ 0.50    2c    4.57%     2.04%    5.10    0.337    2.72     22     112    66.09         5.88%
+ 0.60    2c    3.87%     1.69%    6.10    0.339    3.22     20     122    55.64         4.89%
+ 0.70    2c    3.17%     1.45%    7.09    0.328    3.71     20     142    46.18         3.99%
+ 0.80    2c    2.47%     1.27%    8.09    0.302    4.20     20     162    37.35         3.15%
+ 0.85    2c    2.12%     1.19%    8.58    0.284    4.44     20     172    33.10         2.75%
+ 0.90    2c    1.77%     1.12%    9.10    0.263    4.68     21     191    28.93         2.36%
+  fee/$vol ~ 0.07 x (1 - p) + 1%: it falls as the bought side gets more expensive.
+  '$ for 1k' = cash a zero-edge bot burns to reach $1,000; it exceeds $10 everywhere,
+  so qualifying needs real edge of at least 'edge/$ for 1k' per $ of volume.
+
+2. Official-snapshot figures, fees only (spread unknown, so these are upper bounds on runway)
+  this build        fee 4.5% x $3.29/cycle = $0.148/cycle -> ~49 cycles, ~$161 volume before cash < $2.72 min BUY; $1,000 burns $45 in fees
+  top builds, low   fee 1.9% x $9.70/cycle = $0.184/cycle -> ~28 cycles, ~$272 volume before cash < $4.66 min BUY; $1,000 burns $19 in fees
+  top builds, high  fee 2.8% x $7.80/cycle = $0.218/cycle -> ~24 cycles, ~$187 volume before cash < $4.66 min BUY; $1,000 burns $28 in fees
+  (min BUY assumed at ask 0.50 for this build and 0.90 for top builds; per-cycle volume and
+  fee rate are from the snapshots. ~49 cycles matches this build's 50 cycles / ~60 markets.)
+
+3. Entry price floor (buy only the higher-priced side, ask >= floor, existing cap 0.90), 1c spread
+ floor fee/$vol at floor cycles at floor volume at floor
+  none             5.93%              35             110
+  0.50             4.53%              26             134
+  0.60             3.83%              24             148
+  0.70             3.13%              23             164
+  0.80             2.43%              24             195
+  0.90             1.73%              26             238
+  (floor 'none' is shown at ask 0.30.) A floor cuts worst-case fee drag and raises volume per
+  cycle, but it also skips every cheaper entry: whether those entries had edge is UNTESTED.
+
+4. Cash-preservation rule: no BUY unless cash - worst cycle loss >= next minimum BUY, 1c spread
+  ask worst loss cycles no rule cycles rule cash end no rule cash end rule
+ 0.50       0.52             26          24             2.58          3.15
+ 0.70       0.51             23          21             3.67          4.22
+ 0.90       0.51             26          23             4.55          5.18
+  At zero edge the rule only stops earlier: it gives up a few cycles to keep one minimum BUY
+  funded after a stop-loss cycle. It adds volume only if the bot has edge, which is UNTESTED.
+
+5. Size to the $5 cap (YENO_SIZE_TO_CAP=1, default off), 1c spread
+  ask 0.50: 5 shares -> 26 cycles, $134 volume; to cap -> 16 cycles, $136 volume
+  ask 0.70: 5 shares -> 23 cycles, $164 volume; to cap -> 18 cycles, $168 volume
+  ask 0.90: 5 shares -> 26 cycles, $238 volume; to cap -> 24 cycles, $234 volume
+  Same fee drag per $ of volume, so the zero-edge volume barely moves; larger size only
+  reaches the target in fewer cycles if there is edge (UNTESTED).

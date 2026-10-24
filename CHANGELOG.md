@@ -2,7 +2,24 @@
 
 Every simulator number below is **mechanics only, not edge**: synthetic books, no real data.
 
-## Unreleased
+## v3 (submission-v2)
+Official rule from the owner: a position open at market change ends the whole replay.
+
+### yeno_bot.py
+- Entries only 100-120 s before close (was 70-90 s); SELL on every call from 90 s (was 60 s).
+- Maximum hold 10 s; SELL at once when the held side's bids cover < 2x the position or vanish (was HOLD with no bids).
+- Stop on a 3-cent adverse gross price move (was $0.10/share fee-inclusive), so it fires while bids still exist at any price level.
+- No entry unless bids cover 2x the shares a BUY can buy and the spread is inside the stop.
+- Unchanged: entry signal, 5-share size, fee-inclusive $5 per-BUY cap with +2-cent headroom, opt-in YENO_SIZE_TO_CAP=1, lock, error-while-holding SELL, Dockerfile.
+- Simulator (mechanics only, not edge): stress stops 13/160 -> 1/160, full suite 2 -> 0; fee drag 2.05% -> 2.20%; baseline median volume 209 -> 169.
+
+### sim
+- An open position at market change ends the run (old settle reading kept as `open_at_change="settle"`); reports markets survived, stops, fee% and volume per cycle.
+- New `cliff` scenario (fading liquidity near close).
+- `sim/fee_cash.py`: fee drag and $10 runway calculations, entry price floor and cash-preservation rule (calculations only; effect on edge untested).
+- Results: `sim/results/v2-market-change.txt`, `design-v3.txt`, `yeno-v3.txt`, `fee-cash.txt`.
+
+## Unreleased (v2, submission-v1)
 
 ### Added
 - `sim/yeno_sim.py`: a local simulator built from `yeno-evaluator-contract.md`. It covers the 250 ms latency against a later book update, the 2 s stale-book rejection, partial fills and split exits, one-sided books, the final-15 s entry block, settlement at market close, terminal-flat checks, and fault injection: schema variants, stale or missing reference data, late or dropped writes, and evaluator stalls. It runs bots in-process or over HTTP; both give the same action hash.

@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""YeNo × Builderr volume bot: House Bot v1 with mechanical fixes.
+"""YeNo × Builderr volume bot: House Bot v1's entry signal with exits built for one rule.
 
-Strategy (entry signal, exit rules, 5-share size) is House Bot v1's. Changes are
-mechanical only: exits on partial bid depth and latched until flat, no entries
-inside 70 s of close, BUY cash headroom for a 2-cent move, SELL on any error while
-holding, and a lock around shared state. See CHANGELOG.md and NOTES.md.
+A position still open at market change ends the official replay, so exits come first:
+entries only 100-120 s before close, only when bids cover twice the shares bought and
+the spread is inside the stop; exit at once when bids thin below twice the position or
+vanish, on a 3-cent adverse price move (fees aside), after 10 s held, and on every call
+from 90 s to close; every exit is latched and re-sent until flat. Also: BUY cash headroom for a 2-cent move, SELL on
+any error while holding, and a lock around shared state. See CHANGELOG.md and NOTES.md.
 Deterministic, stdlib only, no network or disk I/O at decision time.
 """
 
@@ -22,12 +24,16 @@ TARGET_SHARES = 5.0
 MINIMUM_REFERENCE_GAP_USD = 50.0
 MAXIMUM_ENTRY_PRICE = 0.90
 MAXIMUM_IMMEDIATE_LOSS_USD = 0.40
-STOP_LOSS_PER_SHARE_USD = 0.10
+# Stop on the adverse price move (gross, spread included, fees excluded) so it means the same at
+# any price level; it fires while bids still exist. Entries need a spread inside it.
+STOP_MOVE_PER_SHARE_USD = 0.03
 MAXIMUM_CYCLES_PER_MARKET = 2
 REENTRY_COOLDOWN_SECONDS = 2.0
-ENTRY_WINDOW_SECONDS = 90.0
-ENTRY_FLOOR_SECONDS = 70.0  # FORCED_EXIT_SECONDS + 10 s, so no entry is dumped on the next call
-FORCED_EXIT_SECONDS = 60.0
+ENTRY_WINDOW_SECONDS = 120.0
+ENTRY_FLOOR_SECONDS = 100.0  # FORCED_EXIT_SECONDS + MAXIMUM_HOLD_SECONDS
+FORCED_EXIT_SECONDS = 90.0   # SELL on every call from here to close
+MAXIMUM_HOLD_SECONDS = 10.0
+BID_DEPTH_MULTIPLE = 2.0     # exit when bids cover less than this x the position; entry needs it too
 MAXIMUM_REFERENCE_AGE_SECONDS = 1.5
 BUY_HEADROOM_USD = 0.02  # fund the target shares even if asks move up 2 cents within the 250 ms
 MAXIMUM_BUY_CASH_USD = 5.0
@@ -129,6 +135,7 @@ class HouseBot:
         self.completed_cycles = 0
         self.last_flat_at = -math.inf
         self.last_buy_attempt_at = -math.inf
+        self.held_since = -math.inf
         self.exiting = False
         self._lock = threading.Lock()
 
@@ -163,6 +170,8 @@ class HouseBot:
         if position is None and self.position_was_open:
             self.completed_cycles += 1
             self.last_flat_at = now
+        if position is not None and not self.position_was_open:
+            self.held_since = now
         self.position_was_open = position is not None
 
         if position is not None:
@@ -172,26 +181,23 @@ class HouseBot:
                 return self._sell()
             if str(position.get("market_id", market_id)) != market_id:
                 return self._sell()
+            if now - self.held_since >= MAXIMUM_HOLD_SECONDS - 1e-9:
+                return self._sell()
             side = str(position["outcome"])
             shares = float(position["shares"])
             bid_rows = books.get(side, {}).get("bids", [])
-            sellable = min(shares, sum(size for _, size in _levels(bid_rows, reverse=True)))
-            if sellable <= 1e-9:
-                return {"action": "HOLD"}
-            executable = _sell_proceeds(bid_rows, sellable)
-            if executable is None:
-                return {"action": "HOLD"}
-            sell_gross, sell_fees = executable
-            net_now = sell_gross - sell_fees
-            if sellable < shares:
-                # Thin book: value the unsellable rest at the same average net price.
-                net_now *= shares / sellable
-            paid = float(position["buy_gross_usd"]) + float(position["buy_fees_usd"])
-            received = float(position.get("sell_gross_usd", 0)) - float(position.get("sell_fees_usd", 0))
-            full_cycle_pnl = received + net_now - paid
-            if full_cycle_pnl >= -1e-9:
+            # Thin or empty bids: sell into whatever is there now and re-send for the rest,
+            # before the book can go fully one-sided.
+            if sum(size for _, size in _levels(bid_rows, reverse=True)) < BID_DEPTH_MULTIPLE * shares - 1e-9:
                 return self._sell()
-            if full_cycle_pnl <= -STOP_LOSS_PER_SHARE_USD * shares + 1e-9:
+            sell_gross, sell_fees = _sell_proceeds(bid_rows, shares)
+            bought = float(position["buy_gross_usd"])
+            sold = float(position.get("sell_gross_usd", 0))
+            paid = bought + float(position["buy_fees_usd"])
+            received = sold - float(position.get("sell_fees_usd", 0))
+            if received + sell_gross - sell_fees - paid >= -1e-9:
+                return self._sell()
+            if sold + sell_gross - bought <= -STOP_MOVE_PER_SHARE_USD * shares + 1e-9:
                 return self._sell()
             return {"action": "HOLD"}
 
@@ -228,6 +234,8 @@ class HouseBot:
         sell_gross, sell_fees = immediate_exit
         if sell_gross - sell_fees - gross - fees < -MAXIMUM_IMMEDIATE_LOSS_USD - 1e-9:
             return {"action": "HOLD"}
+        if sell_gross - gross <= -STOP_MOVE_PER_SHARE_USD * TARGET_SHARES + 1e-9:
+            return {"action": "HOLD"}  # the stop would close it on the next call
 
         # A fill below minOrderSize is rejected, so budget the target shares at asks + 2 cents
         # (fee-inclusive, rounded up to the cent) and require it to fit under the cap, rounded down.
@@ -244,6 +252,10 @@ class HouseBot:
         if SIZE_TO_CAP:
             sized = _sized_budget(asks, books.get(side, {}).get("bids", []), best_asks, cap, shares)
             budget = max(budget, sized or 0.0)
+        # No entry the thin-book exit would dump at once: budget / best ask over-counts the shares.
+        exit_depth = sum(size for _, size in _levels(books.get(side, {}).get("bids", []), reverse=True))
+        if exit_depth < BID_DEPTH_MULTIPLE * budget / best_asks[0][0] - 1e-9:
+            return {"action": "HOLD"}
         self.last_buy_attempt_at = now
         return {"action": "BUY", "outcome": side, "maxCashUsd": round(budget, 2)}
 

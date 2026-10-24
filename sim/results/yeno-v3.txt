@@ -1,0 +1,78 @@
+bot: yeno_bot.py (v3, this commit)
+simulator: this commit (an open position at market change ends the run)
+label: mechanics only, not edge
+
+## Full suite, 8 seeds
+command: python3 sim/yeno_sim.py --bot yeno_bot.py
+=== mechanics only, not edge === synthetic books; volumes and cash are not evidence of edge
+stop% = runs ended by a position open at market change; mkts = markets survived, median/min/in window
+vol/cyc = eligible volume per completed cycle; fee% = fees of completed cycles / eligible volume
+scenario      adv runs stop%        mkts  med vol best vol qual% med cash med cyc vol/cyc  fee% <5sh rej late buy errors
+baseline        0    8     0 288/288/288    168.8    240.3     0     3.83      20    8.49  2.19       33        0      0
+baseline        1    8     0 288/288/288    134.9    168.8     0     3.80      16    8.42  2.21       58        0      0
+baseline        2    8     0 288/288/288    107.0    135.3     0     3.79      13    8.34  2.22       92        0      0
+baseline        3    8     0 288/288/288     90.9    100.5     0     3.73      11    8.28  2.25      143        0      0
+partial         0    8     0 288/288/288    171.1    248.5     0     3.80      20    8.55  2.15       58        0      0
+stale           0    8     0 288/288/288    186.8    283.8     0     3.71      22    8.50  2.19       33        0      0
+onesided        0    8     0 288/288/288    207.8    344.4     0     3.81      24    8.54  2.17       43        0      0
+thin-expiry     0    8     0 288/288/288    200.1    271.3     0     3.63      24    8.47  2.19       42        0      0
+cliff           0    8     0 288/288/288    182.1    274.0     0     3.68      22    8.50  2.20       45        0      0
+timeouts        0    8     0 288/288/288    249.7    303.4     0     3.82      29    8.54  2.15       42        0      0
+minsize         0    8     0 288/288/288    195.3    207.6     0     3.88      23    8.53  2.18       51        0      0
+lagged          0    8     0 288/288/288    529.2    647.5     0     3.65      64    8.30  2.30      161        0      0
+everything      0    8     0 288/288/288    169.6    239.3     0     3.78      20    8.46  2.23       57        0      0
+short-window    0   64     0    12/12/12     67.6    133.3    89     8.69       8    8.50  2.17      138        0      0
+
+rejections, partial sells and skipped calls, summed over runs (mechanics only, not edge):
+  baseline@0c: partial_sells=0 skipped_stale_calls=10473 rejects={'BUY:below_min_size': 33, 'BUY:stale_book': 1}
+  baseline@1c: partial_sells=0 skipped_stale_calls=10473 rejects={'BUY:below_min_size': 58, 'BUY:stale_book': 2, 'SELL:stale_book': 1}
+  baseline@2c: partial_sells=0 skipped_stale_calls=10472 rejects={'BUY:below_min_size': 92, 'BUY:stale_book': 3, 'SELL:stale_book': 1}
+  baseline@3c: partial_sells=0 skipped_stale_calls=10474 rejects={'BUY:below_min_size': 143, 'BUY:stale_book': 2, 'SELL:stale_book': 1}
+  partial@0c: partial_sells=0 skipped_stale_calls=10834 rejects={'BUY:below_min_size': 58, 'BUY:stale_book': 2}
+  stale@0c: partial_sells=0 skipped_stale_calls=16227 rejects={'BUY:below_min_size': 33, 'BUY:stale_book': 1}
+  onesided@0c: partial_sells=0 skipped_stale_calls=10655 rejects={'BUY:below_min_size': 43, 'SELL:no_bids': 4, 'BUY:stale_book': 2, 'BUY:no_asks': 2, 'SELL:stale_book': 1}
+  thin-expiry@0c: partial_sells=0 skipped_stale_calls=10634 rejects={'BUY:below_min_size': 42}
+  cliff@0c: partial_sells=0 skipped_stale_calls=10652 rejects={'BUY:below_min_size': 45, 'BUY:stale_book': 5, 'SELL:no_bids': 3}
+  timeouts@0c: partial_sells=0 skipped_stale_calls=9950 rejects={'BUY:below_min_size': 42, 'BUY:write_dropped': 15, 'SELL:write_dropped': 12, 'BUY:stale_book': 3, 'SELL:stale_book': 2}
+  minsize@0c: partial_sells=0 skipped_stale_calls=10472 rejects={'BUY:below_min_size': 51, 'BUY:stale_book': 1}
+  lagged@0c: partial_sells=0 skipped_stale_calls=10587 rejects={'BUY:below_min_size': 161, 'BUY:stale_book': 10, 'SELL:stale_book': 2}
+  everything@0c: partial_sells=0 skipped_stale_calls=15253 rejects={'BUY:below_min_size': 57, 'BUY:write_dropped': 12, 'BUY:no_asks': 9, 'SELL:write_dropped': 7, 'SELL:no_bids': 5}
+  short-window@0c: partial_sells=0 skipped_stale_calls=3471 rejects={'BUY:below_min_size': 138, 'SELL:stale_book': 4, 'BUY:stale_book': 4}
+
+## Stress set, 32 seeds
+command: python3 sim/yeno_sim.py --bot yeno_bot.py --scenarios onesided,thin-expiry,cliff,everything,stale --seeds 32
+=== mechanics only, not edge === synthetic books; volumes and cash are not evidence of edge
+stop% = runs ended by a position open at market change; mkts = markets survived, median/min/in window
+vol/cyc = eligible volume per completed cycle; fee% = fees of completed cycles / eligible volume
+scenario      adv runs stop%        mkts  med vol best vol qual% med cash med cyc vol/cyc  fee% <5sh rej late buy errors
+onesided        0   32     0 288/288/288    186.8    344.4     0     3.75      22    8.51  2.18      132        0      0
+thin-expiry     0   32     0 288/288/288    204.2    344.7     0     3.70      24    8.51  2.17      157        0      0
+cliff           0   32     3   288/2/288    185.2    291.1     0     3.72      22    8.48  2.20      158        0      0
+everything      0   32     0 288/288/288    193.3    282.9     0     3.78      23    8.50  2.20      215        0      0
+stale           0   32     0 288/288/288    196.8    298.1     0     3.79      23    8.51  2.18      151        0      0
+
+rejections, partial sells and skipped calls, summed over runs (mechanics only, not edge):
+  onesided@0c: partial_sells=0 skipped_stale_calls=42364 rejects={'BUY:below_min_size': 132, 'BUY:no_asks': 18, 'SELL:no_bids': 15, 'BUY:stale_book': 8, 'SELL:stale_book': 1}
+  thin-expiry@0c: partial_sells=0 skipped_stale_calls=42319 rejects={'BUY:below_min_size': 157, 'SELL:stale_book': 4, 'BUY:stale_book': 3, 'SELL:no_bids': 2}
+  cliff@0c: partial_sells=0 skipped_stale_calls=41232 rejects={'BUY:below_min_size': 158, 'SELL:no_bids': 108, 'BUY:stale_book': 8, 'SELL:stale_book': 1}
+  everything@0c: partial_sells=0 skipped_stale_calls=61487 rejects={'BUY:below_min_size': 215, 'BUY:write_dropped': 50, 'SELL:write_dropped': 38, 'BUY:no_asks': 27, 'SELL:no_bids': 17}
+  stale@0c: partial_sells=0 skipped_stale_calls=65711 rejects={'BUY:below_min_size': 151, 'BUY:stale_book': 11, 'SELL:stale_book': 6}
+
+stops (position open at market change; mechanics only, not edge):
+  cliff seed 15: market 3, NO 5.12 sh left, split_exit=False, filled 110.5 s before close, last bid depth 0
+
+Before/after (mechanics only, not edge): v2 (submission-v1) vs v3, same simulator, same seeds
+metric                                                                  v2          v3
+Runs stopped by a position open at market change, stress (160)   13 (8.1%)    1 (0.6%)
+  same, full suite (168 runs)                                            2           0
+  thin-expiry / cliff stops, stress (32 each)                          6/7         0/1
+Fewest markets survived, stress (of ~288)                                4           2
+Mean hold per cycle, s, full suite                                     7.9         4.2
+Fee drag per $ of volume, full suite                                 2.05%       2.20%
+Volume per completed cycle, full suite                               $8.68       $8.45
+Median volume / cycles, baseline 24 h                             209 / 24    169 / 20
+Lagged (artificial edge): median volume / qualified              952 / 50%    529 / 0%
+BUYs sent with <=60 s to close / bot errors, full suite              0 / 0       0 / 0
+HTTP, 24 h baseline, 85,066 calls: p50 0.56 / p99 0.92 / max 16.6 ms, 0 timeouts at a 200 ms client timeout;
+action hash equals the in-process run. Container (pinned Dockerfile, unchanged): smoke test passes,
+short-window hash equals in-process, p99 1.07 ms.

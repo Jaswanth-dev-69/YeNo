@@ -21,9 +21,12 @@ under each reading:
   * BUY spends at most maxCashUsd, fees included, walking the asks in
     0.01-share steps. SELL sells the whole position into whatever bids exist;
     the rest stays open (split exit). Fees are rounded per order.
-  * A position still open at market close settles at 1 or 0 and its cycle
-    adds zero volume. Terminal flat = no position and no pending action when
-    the window ends.
+  * A position still open at market change (market close) ENDS the whole
+    replay, as in the official snapshots: nothing after that market counts and
+    the run reports how many markets it survived. A pending SELL at close is
+    rejected first, so its position is still open. The old reading (settle at 1
+    or 0, zero volume for that cycle, run continues) is open_at_change="settle".
+    Terminal flat = no position and no pending action when the window ends.
 """
 
 from __future__ import annotations
@@ -81,6 +84,10 @@ class Scenario:
     unsorted_levels: bool = False
     int_seconds: bool = False          # secondsToClose sent as a floored int
     thin_expiry: bool = False          # persistently thin or one-sided books in the last 90 s
+    cliff_prob: float = 0.0            # per market and outcome: liquidity collapses at a random
+                                       # time 10-150 s before close, more likely near close: bids
+                                       # turn thin, patchy, or fade out over 2-20 s and vanish
+    open_at_change: str = "end_run"    # "end_run" (official) | "settle" a position open at close
     buy_below_min: str = "reject"      # "allow" | "reject" BUY fills under minOrderSize
     sell_below_min: str = "allow"      # "allow" | "reject" SELL fills under minOrderSize
     late_exec_prob: float = 0.0        # ambiguous write: executes 0.5-4 s late
@@ -98,6 +105,7 @@ SCENARIOS: dict[str, Scenario] = {
                  target_delay_max=20.0),
         Scenario("onesided", onesided="aggressive"),
         Scenario("thin-expiry", thin_expiry=True),
+        Scenario("cliff", cliff_prob=0.5),
         Scenario("timeouts", late_exec_prob=0.15, drop_exec_prob=0.05, obs_gap_prob=0.01),
         Scenario("minsize", buy_below_min="reject", sell_below_min="reject", thin_prob=0.3),
         Scenario("lagged", book_lag_seconds=5.0),
@@ -114,7 +122,7 @@ SCENARIOS: dict[str, Scenario] = {
 # (scenario, adverse cents, seed multiplier) run by default.
 DEFAULT_SUITE: list[tuple[str, float, int]] = [
     ("baseline", 0, 1), ("baseline", 1, 1), ("baseline", 2, 1), ("baseline", 3, 1),
-    ("partial", 0, 1), ("stale", 0, 1), ("onesided", 0, 1), ("thin-expiry", 0, 1),
+    ("partial", 0, 1), ("stale", 0, 1), ("onesided", 0, 1), ("thin-expiry", 0, 1), ("cliff", 0, 1),
     ("timeouts", 0, 1), ("minsize", 0, 1), ("lagged", 0, 1), ("everything", 0, 1),
     ("short-window", 0, 8),
 ]
@@ -139,7 +147,7 @@ def take(levels: list[tuple[float, float]], shares: float) -> list[tuple[float, 
 
 class Market:
     __slots__ = ("idx", "id", "open", "close", "target", "target_final_at", "provisional_target",
-                 "times", "quote", "stale_ref", "expiry_mode")
+                 "times", "quote", "stale_ref", "expiry_mode", "cliff")
 
 
 class World:
@@ -193,6 +201,12 @@ class World:
                 for outcome in ("YES", "NO"):
                     m.expiry_mode[outcome] = rng.choices(
                         ("thin", "patchy", "onesided", "normal"), weights=(4, 3, 1, 2))[0]
+            m.cliff = {"YES": None, "NO": None}
+            if sc.cliff_prob > 0:  # guarded so other scenarios keep their worlds
+                for outcome in ("YES", "NO"):
+                    if rng.random() < sc.cliff_prob:
+                        m.cliff[outcome] = (m.close - 10 - 140 * rng.random() ** 2,
+                                            rng.choice(("thin", "patchy", "fade")), rng.uniform(2, 20))
             m.stale_ref = None
             if rng.random() < sc.stale_ref_prob:
                 s0 = rng.uniform(m.open, m.close - 2)
@@ -246,6 +260,20 @@ class World:
             asks = [(px, round(r.uniform(0.5, 3.0), 2)) for px, _ in asks]
         elif remaining < 90 and (mode == "onesided" or (mode == "patchy" and r.random() < 0.6)):
             bids = []
+        cliff = m.cliff[outcome]
+        if cliff is not None and t >= cliff[0]:
+            if cliff[1] == "thin":
+                bids = [(px, round(r.uniform(0.5, 3.0), 2)) for px, _ in bids]
+                asks = [(px, round(r.uniform(0.5, 3.0), 2)) for px, _ in asks]
+            elif cliff[1] == "patchy":
+                if r.random() < 0.6:
+                    bids = []
+            else:  # fade: depth shrinks and bids drop out more often, then none until close
+                left = 1 - (t - cliff[0]) / cliff[2]
+                if left <= 0 or r.random() > left:
+                    bids = []
+                else:
+                    bids = [(px, max(round(sz * left * 0.2, 2), 0.01)) for px, sz in bids]
         if sc.onesided == "near_expiry":
             if remaining < 30 and fair > 0.95 and r.random() < 0.8:
                 asks = []
@@ -284,7 +312,13 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
     peak_eq = peak_cash = cash
     max_dd_eq = max_dd_cash = 0.0
     cross_seconds = cross_cash = None
+    cycle_fees = 0.0
+    markets_survived = 0
+    markets_total = sum(1 for mk in w.markets if w.t0 < mk.close <= w.t_end)
+    last_fill_market = 0
+    stop: dict[str, Any] | None = None
     mi = w.market_at(w.t0)
+    first_mi = mi
     t_obs = w.t0
 
     def note_cash_dd() -> None:
@@ -310,7 +344,7 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
         return {"at": times[i], "kind": kind, "outcome": outcome, "max_cash": max_cash, "snap": i}
 
     def resolve(p: dict[str, Any]) -> None:
-        nonlocal cash, volume, cycles, pos, cross_seconds, cross_cash
+        nonlocal cash, volume, cycles, pos, cross_seconds, cross_cash, cycle_fees, last_fill_market
         if "reject" in p:
             rejects[f"{p['kind']}:{p['reject']}"] += 1
             return
@@ -346,7 +380,8 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
             gross, fee = sum(px * q for px, q in f), fees(f)
             cash -= gross + fee
             pos = {"market_id": m.id, "outcome": p["outcome"], "shares": shares, "buy_gross": gross, "buy_fees": fee,
-                   "sell_gross": 0.0, "sell_fees": 0.0}
+                   "sell_gross": 0.0, "sell_fees": 0.0, "filled_at": p["at"]}
+            last_fill_market = mi - first_mi + 1
             st["buy_fills"] += 1
             return
         # SELL: close as much of the position as the bids allow.
@@ -371,6 +406,8 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
         st["sell_fills"] += 1
         if pos["shares"] <= EPS:
             volume += pos["buy_gross"] + pos["sell_gross"]
+            cycle_fees += pos["buy_fees"] + pos["sell_fees"]
+            st["hold_seconds"] += round(p["at"] - pos["filled_at"], 3)
             cycles += 1
             pos = None
             note_cash_dd()
@@ -437,6 +474,14 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
             if pend is not None:
                 rejects[f"{pend['kind']}:market_closed"] += 1
                 pend = None
+            if pos is not None and sc.open_at_change == "end_run":
+                book = w.latest(m, pos["outcome"], t)
+                stop = {"market": mi - first_mi + 1, "outcome": pos["outcome"],
+                        "shares_left": pos["shares"], "split_exit": pos["sell_gross"] > 0,
+                        "filled_s_to_close": round(m.close - pos["filled_at"], 1),
+                        "last_bid_depth": round(sum(s for _, s in book["bids"]), 2) if book else 0.0}
+                st["stopped_open_at_market_change"] += 1
+                break
             if pos is not None:
                 yes_won = w.btc(m.close) >= m.target
                 won = (pos["outcome"] == "YES") == yes_won
@@ -445,6 +490,7 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
                 st["settled_buy_usd_lost_from_volume"] += round(pos["buy_gross"], 4)
                 pos = None
                 note_cash_dd()
+            markets_survived += 1
             mi += 1
             continue
 
@@ -539,13 +585,22 @@ def run_one(sc: Scenario, seed: int, decide: Callable[[dict], Any]) -> dict[str,
         t_obs = advance(t)
 
     flat = pos is None and pend is None
+    reason = None
+    if stop is not None:
+        reason = "open_at_market_change"
+    elif not flat:
+        reason = "position" if pos is not None else "pending_action"
     latencies.sort()
     return {
         "label": LABEL,
         "scenario": sc.name, "seed": seed, "adverse_cents": sc.adverse_cents,
         "volume": round(volume, 4), "cycles": cycles, "cash_end": round(cash, 4),
         "flat": flat,
-        "not_flat_reason": None if flat else ("position" if pos is not None else "pending_action"),
+        "not_flat_reason": reason,
+        "stopped": stop is not None, "stop": stop,
+        "markets_survived": markets_survived, "markets_total": markets_total,
+        "last_fill_market": last_fill_market,
+        "cycle_fees": round(cycle_fees, 4),
         # The crossing happens when a cycle fully closes, so the bot is flat with nothing pending.
         "qualified": cross_seconds is not None,
         "cross_seconds": cross_seconds and round(cross_seconds, 1),
@@ -596,22 +651,29 @@ def summarize(rows: list[dict[str, Any]]) -> str:
     groups: dict[tuple[str, float], list[dict[str, Any]]] = {}
     for r in rows:
         groups.setdefault((r["scenario"], r["adverse_cents"]), []).append(r)
-    head = (f"{'scenario':<13}{'adv':>4}{'runs':>5}{'med vol':>9}{'best vol':>9}{'qual%':>6}"
-            f"{'med cash':>9}{'med DDeq':>9}{'med cyc':>8}{'settled':>8}{'<5sh rej':>9}"
+    head = (f"{'scenario':<13}{'adv':>4}{'runs':>5}{'stop%':>6}{'mkts':>12}{'med vol':>9}{'best vol':>9}"
+            f"{'qual%':>6}{'med cash':>9}{'med cyc':>8}{'vol/cyc':>8}{'fee%':>6}{'<5sh rej':>9}"
             f"{'late buy':>9}{'errors':>7}")
-    lines = [f"=== {LABEL} === synthetic books; volumes and cash are not evidence of edge", head]
+    lines = [f"=== {LABEL} === synthetic books; volumes and cash are not evidence of edge",
+             "stop% = runs ended by a position open at market change; mkts = markets survived, "
+             "median/min/in window",
+             "vol/cyc = eligible volume per completed cycle; fee% = fees of completed cycles / eligible volume",
+             head]
     for (name, cents), rs in groups.items():
         n = len(rs)
         errors = sum(v for r in rs for k, v in r["stats"].items()
                      if k.startswith("decide_error") or k in ("invalid_responses", "decide_timeouts"))
+        vol, cyc, fee = (sum(r[k] for r in rs) for k in ("volume", "cycles", "cycle_fees"))
+        mkts = (f"{statistics.median(r['markets_survived'] for r in rs):.0f}/"
+                f"{min(r['markets_survived'] for r in rs)}/"
+                f"{statistics.median(r['markets_total'] for r in rs):.0f}")
         lines.append(
-            f"{name:<13}{cents:>4.0f}{n:>5}"
+            f"{name:<13}{cents:>4.0f}{n:>5}{100 * sum(r['stopped'] for r in rs) / n:>6.0f}{mkts:>12}"
             f"{statistics.median(r['volume'] for r in rs):>9.1f}{max(r['volume'] for r in rs):>9.1f}"
             f"{100 * sum(r['qualified'] for r in rs) / n:>6.0f}"
             f"{statistics.median(r['cash_end'] for r in rs):>9.2f}"
-            f"{statistics.median(r['max_dd_equity'] for r in rs):>9.2f}"
             f"{statistics.median(r['cycles'] for r in rs):>8.0f}"
-            f"{sum(r['stats'].get('settled_positions', 0) for r in rs):>8}"
+            f"{vol / cyc if cyc else 0:>8.2f}{100 * fee / vol if vol else 0:>6.2f}"
             f"{sum(r['rejects'].get('BUY:below_min_size', 0) for r in rs):>9}"
             f"{sum(r['stats'].get('buys_sent_<=60s_to_close', 0) for r in rs):>9}{errors:>7}")
     lines.append("")
@@ -624,6 +686,15 @@ def summarize(rows: list[dict[str, Any]]) -> str:
         skipped = sum(r["stats"].get("calls_skipped_stale_book", 0) for r in rs)
         lines.append(f"  {name}@{cents:.0f}c: partial_sells={partial} skipped_stale_calls={skipped} "
                      f"rejects={dict(rej.most_common(5))}")
+    stops = [(r["scenario"], r["seed"], r["stop"]) for r in rows if r["stopped"]]
+    if stops:
+        lines.append("")
+        lines.append(f"stops (position open at market change; {LABEL}):")
+        for name, seed, sp in stops:
+            lines.append(f"  {name} seed {seed}: market {sp['market']}, {sp['outcome']} "
+                         f"{sp['shares_left']} sh left, split_exit={sp['split_exit']}, "
+                         f"filled {sp['filled_s_to_close']} s before close, "
+                         f"last bid depth {sp['last_bid_depth']}")
     return "\n".join(lines)
 
 

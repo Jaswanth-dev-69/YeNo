@@ -2,14 +2,14 @@
 
 Paper-trading bot for the Builderr x YeNo volume-bot challenge. Stdlib-only, deterministic, no network calls in the bot.
 
-A `/decide` bot for the YeNo × Builderr volume-bot challenge. It is House Bot v1's strategy with mechanical fixes only (see `CHANGELOG.md`; decisions are logged in `NOTES.md`):
+A `/decide` bot for the YeNo × Builderr volume-bot challenge. It keeps House Bot v1's entry signal and 5-share size. Its exits are built around the official rule that a position still open at market change ends the whole replay (see `CHANGELOG.md`; decisions are logged in `NOTES.md`):
 
-- exits on partial bid depth, re-sending SELL until flat;
-- hard flatten from 60 s to close;
-- no entries with 70 s or less to close;
-- BUY cash headroom for a 2-cent move;
-- SELL on any error while holding;
-- a lock around shared state.
+- entries only 100-120 s before close, only with bids for 2x the shares and a spread inside the stop;
+- SELL on every call from 90 s to close;
+- SELL at once when bids thin below 2x the position or vanish, after 10 s held, or on a 3-cent adverse price move;
+- every exit re-sends SELL until flat, selling into whatever bids exist;
+- BUY cash headroom for a 2-cent move, inside the fee-inclusive $5 cap;
+- SELL on any error while holding, and a lock around shared state.
 
 It uses only the Python standard library and makes no network calls, disk I/O or clock reads when deciding.
 
@@ -38,13 +38,14 @@ python3 -m unittest discover -s tests                   # unit tests (stdlib)
 python3 sim/yeno_sim.py --bot yeno_bot.py               # full mechanics suite (~2 min on 16 cores)
 python3 sim/yeno_sim.py --bot yeno_bot.py --scenarios baseline,thin-expiry --stress 0,2 --seeds 4
 python3 sim/yeno_sim.py --bot x --scenarios short-window --http http://127.0.0.1:8080/decide
+python3 sim/fee_cash.py                                 # fee drag and $10 runway (calculations only)
 ```
-Every simulator figure is **mechanics only, not edge**. Saved results: `sim/results/house-v1.txt` and `sim/results/yeno-v2.txt` (the latter includes the before/after table).
+Every simulator figure is **mechanics only, not edge**. An open position at market change ends a simulated run, as in the official replay. Saved results: `sim/results/yeno-v3.txt` (with the v2 -> v3 before/after table), `v2-market-change.txt`, `design-v3.txt` and `fee-cash.txt`. `house-v1.txt` and `yeno-v2.txt` are from the earlier simulator, which settled open positions at close.
 
 ## Files
 - `yeno_bot.py`: the bot.
 - `tests/`: unit tests.
-- `sim/`: contract simulator.
+- `sim/`: contract simulator and fee/cash calculator.
 - `Dockerfile`: container build.
 - `NOTES.md`: Builderr's contract addendum and the decision log.
 - `FEASIBILITY.md`: public data sources for a real-data recorder.
